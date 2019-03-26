@@ -20,7 +20,6 @@ import com.facebook.presto.spi.PrestoException;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.parquet.format.Util;
 import org.apache.parquet.format.converter.ParquetMetadataConverter;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.internal.column.columnindex.ColumnIndex;
@@ -81,7 +80,7 @@ public class HdfsParquetDataSource
             return null;
         }
         inputStream.seek(ref.getOffset());
-        return ParquetMetadataConverter.fromParquetColumnIndex(column.getPrimitiveType(), Util.readColumnIndex(inputStream));
+        return ParquetMetadataConverter.fromParquetColumnIndex(column.getPrimitiveType(), org.apache.parquet.format.Util.readColumnIndex(inputStream));
     }
 
     @Override
@@ -92,7 +91,7 @@ public class HdfsParquetDataSource
             return null;
         }
         inputStream.seek(ref.getOffset());
-        return ParquetMetadataConverter.fromParquetOffsetIndex(Util.readOffsetIndex(inputStream));
+        return ParquetMetadataConverter.fromParquetOffsetIndex(org.apache.parquet.format.Util.readOffsetIndex(inputStream));
     }
 
     public static HdfsParquetDataSource buildHdfsParquetDataSource(FileSystem fileSystem, Path path, long start, long length, FileFormatDataSourceStats stats)

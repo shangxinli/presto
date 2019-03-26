@@ -11,30 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet;
+package com.facebook.presto.parquet.crypto;
 
-import io.airlift.slice.Slice;
-
-public abstract class Page
+public interface AADPrefixVerifier
 {
-    protected final int compressedSize;
-    protected final int uncompressedSize;
-
-    public Page(int compressedSize, int uncompressedSize)
-    {
-        this.compressedSize = compressedSize;
-        this.uncompressedSize = uncompressedSize;
-    }
-
-    public int getCompressedSize()
-    {
-        return compressedSize;
-    }
-
-    public int getUncompressedSize()
-    {
-        return uncompressedSize;
-    }
-
-    public abstract Slice getSlice();
+    /**
+     * Verifies identity (AAD Prefix) of individual file, or of file collection in a data set.
+     * Must be thread-safe.
+     *
+     * @param aadPrefix AAD Prefix
+     * @throws ParquetCryptoRuntimeException Throw exception if AAD prefix is wrong.
+     */
+    public void verify(byte[] aadPrefix)
+            throws ParquetCryptoRuntimeException;
 }

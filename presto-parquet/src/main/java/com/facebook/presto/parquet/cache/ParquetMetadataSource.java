@@ -14,12 +14,14 @@
 package com.facebook.presto.parquet.cache;
 
 import com.facebook.presto.parquet.ParquetDataSourceId;
+import com.facebook.presto.parquet.crypto.FileDecryptionProperties;
+import com.facebook.presto.parquet.crypto.InternalFileDecryptor;
 import org.apache.hadoop.fs.FSDataInputStream;
 
 import java.io.IOException;
 
 public interface ParquetMetadataSource
 {
-    ParquetFileMetadata getParquetMetadata(FSDataInputStream inputStream, ParquetDataSourceId parquetDataSourceId, long fileSize, boolean cacheable)
+    ParquetFileMetadata getParquetMetadata(FSDataInputStream inputStream, ParquetDataSourceId parquetDataSourceId, long fileSize, boolean cacheable, FileDecryptionProperties fileDecryptionProperties, InternalFileDecryptor fileDecryptor)
             throws IOException;
 }

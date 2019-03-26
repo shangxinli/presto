@@ -11,30 +11,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet;
+package com.facebook.presto.parquet.crypto;
 
-import io.airlift.slice.Slice;
-
-public abstract class Page
+public class TagVerificationException
+        extends ParquetCryptoRuntimeException
 {
-    protected final int compressedSize;
-    protected final int uncompressedSize;
+    private static final long serialVersionUID = 1L;
 
-    public Page(int compressedSize, int uncompressedSize)
+    public TagVerificationException() {}
+
+    public TagVerificationException(String message, Throwable cause)
     {
-        this.compressedSize = compressedSize;
-        this.uncompressedSize = uncompressedSize;
+        super(message, cause);
     }
 
-    public int getCompressedSize()
+    public TagVerificationException(String message)
     {
-        return compressedSize;
+        super(message);
     }
 
-    public int getUncompressedSize()
+    public TagVerificationException(Throwable cause)
     {
-        return uncompressedSize;
+        super(cause);
     }
-
-    public abstract Slice getSlice();
 }

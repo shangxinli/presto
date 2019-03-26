@@ -112,6 +112,7 @@ public final class HiveSessionProperties
     public static final String PARTIAL_AGGREGATION_PUSHDOWN_FOR_VARIABLE_LENGTH_DATATYPES_ENABLED = "partial_aggregation_pushdown_for_variable_length_datatypes_enabled";
     public static final String FILE_RENAMING_ENABLED = "file_renaming_enabled";
     public static final String READ_COLUMN_INDEX_FILTER = "read_column_index_filter";
+    private static final String ENABLE_PARQUET_COLUMN_DECRYPTION = "enable_parquet_column_decryption";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -526,6 +527,11 @@ public final class HiveSessionProperties
                         READ_COLUMN_INDEX_FILTER,
                         "should use column index statistics filtering",
                         hiveClientConfig.getReadColumnIndexFilter(),
+                        false),
+                booleanProperty(
+                        ENABLE_PARQUET_COLUMN_DECRYPTION,
+                        "Is parquet column decryption enabled",
+                        hiveClientConfig.isParquetColumnDecryptionEnabled(),
                         false));
     }
 
@@ -853,6 +859,11 @@ public final class HiveSessionProperties
     public static boolean isParquetBatchReaderVerificationEnabled(ConnectorSession session)
     {
         return session.getProperty(PARQUET_BATCH_READER_VERIFICATION_ENABLED, Boolean.class);
+    }
+
+    public static boolean isParquetColumnDecryptionEnabled(ConnectorSession session)
+    {
+        return session.getProperty(ENABLE_PARQUET_COLUMN_DECRYPTION, Boolean.class);
     }
 
     public static PropertyMetadata<DataSize> dataSizeSessionProperty(String name, String description, DataSize defaultValue, boolean hidden)

@@ -11,30 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet;
 
-import io.airlift.slice.Slice;
+package com.facebook.presto.parquet.crypto;
 
-public abstract class Page
+public enum AesMode
 {
-    protected final int compressedSize;
-    protected final int uncompressedSize;
+    GCM("AES/GCM/NoPadding"),
+    CTR("AES/CTR/NoPadding");
 
-    public Page(int compressedSize, int uncompressedSize)
+    private final String cipherName;
+
+    private AesMode(String cipherName)
     {
-        this.compressedSize = compressedSize;
-        this.uncompressedSize = uncompressedSize;
+        this.cipherName = cipherName;
     }
 
-    public int getCompressedSize()
+    public String getCipherName()
     {
-        return compressedSize;
+        return cipherName;
     }
-
-    public int getUncompressedSize()
-    {
-        return uncompressedSize;
-    }
-
-    public abstract Slice getSlice();
 }

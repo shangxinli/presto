@@ -184,6 +184,7 @@ public class HiveClientConfig
     private boolean fileRenamingEnabled;
 
     private boolean readColumnIndexFilter;
+    private boolean isParquetColumnDecryptionEnabled = true;
 
     public int getMaxInitialSplits()
     {
@@ -1538,5 +1539,18 @@ public class HiveClientConfig
     public boolean getReadColumnIndexFilter()
     {
         return this.readColumnIndexFilter;
+    }
+
+    @Config("hive.enable-parquet-column-decryption")
+    @ConfigDescription("enable parquet column decryption")
+    public HiveClientConfig setParquetColumnDecryptionEnabled(boolean isParquetColumnDecryptionEnabled)
+    {
+        this.isParquetColumnDecryptionEnabled = isParquetColumnDecryptionEnabled;
+        return this;
+    }
+
+    public boolean isParquetColumnDecryptionEnabled()
+    {
+        return this.isParquetColumnDecryptionEnabled;
     }
 }

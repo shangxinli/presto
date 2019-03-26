@@ -34,6 +34,9 @@ import com.facebook.presto.parquet.ParquetDataSource;
 import com.facebook.presto.parquet.ParquetResultVerifierUtils;
 import com.facebook.presto.parquet.PrimitiveField;
 import com.facebook.presto.parquet.RichColumnDescriptor;
+import com.facebook.presto.parquet.crypto.HiddenColumnChunkMetaData;
+import com.facebook.presto.parquet.crypto.InternalColumnDecryptionSetup;
+import com.facebook.presto.parquet.crypto.InternalFileDecryptor;
 import com.facebook.presto.parquet.predicate.Predicate;
 import com.facebook.presto.parquet.predicate.TupleDomainParquetPredicate;
 import com.facebook.presto.parquet.reader.ColumnIndexFilterUtils.OffsetRange;
@@ -90,16 +93,15 @@ public class ParquetReader
     private static final int INITIAL_BATCH_SIZE = 1;
     private static final int BATCH_SIZE_GROWTH_FACTOR = 2;
 
+    private final InternalFileDecryptor fileDecryptor;
     private final List<BlockMetaData> blocks;
     private final List<PrimitiveColumnIO> columns;
-    private final ParquetDataSource dataSource;
     private final AggregatedMemoryContext systemMemoryContext;
     private final boolean batchReadEnabled;
     private final boolean enableVerification;
     private final FilterPredicate filter;
 
     private int currentBlock;
-    private BlockMetaData currentBlockMetadata;
     private long currentPosition;
     private long currentGroupRowCount;
     private RowRanges currentGroupRowRanges;
@@ -113,8 +115,9 @@ public class ParquetReader
     private long maxCombinedBytesPerRow;
     private final long maxReadBlockBytes;
     private int maxBatchSize = MAX_VECTOR_LENGTH;
-
     private AggregatedMemoryContext currentRowGroupMemoryContext;
+    protected final ParquetDataSource dataSource;
+    protected BlockMetaData currentBlockMetadata;
 
     private final List<ColumnIndexStore> blockIndexStores;
     private final List<RowRanges> blockRowRanges;
@@ -130,6 +133,7 @@ public class ParquetReader
             DataSize maxReadBlockSize,
             boolean batchReadEnabled,
             boolean enableVerification,
+            InternalFileDecryptor fileDecryptor,
             Predicate parquetPredicate,
             List<ColumnIndexStore> blockIndexStores,
             boolean readColumnIndexFilter)
@@ -159,6 +163,7 @@ public class ParquetReader
         }
         this.currentBlock = -1; // Set it as invalid block
         this.readColumnIndexFilter = readColumnIndexFilter;
+        this.fileDecryptor = fileDecryptor;
     }
 
     @Override
@@ -285,7 +290,7 @@ public class ParquetReader
         return new ColumnChunk(rowBlock, columnChunk.getDefinitionLevels(), columnChunk.getRepetitionLevels());
     }
 
-    private ColumnChunk readPrimitive(PrimitiveField field)
+    protected ColumnChunk readPrimitive(PrimitiveField field)
             throws IOException
     {
         ColumnDescriptor columnDescriptor = field.getDescriptor();
@@ -375,7 +380,8 @@ public class ParquetReader
     {
         ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, bufferSize);
         ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffers, offsetIndex);
-        return columnChunk.readAllPages();
+
+        return createPageReaderInternal(columnDescriptor, columnChunk);
     }
 
     protected PageReader createPageReader(byte[] buffer, int bufferSize, ColumnChunkMetaData metadata, ColumnDescriptor columnDescriptor)
@@ -383,7 +389,26 @@ public class ParquetReader
     {
         ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, bufferSize);
         ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffer, 0);
-        return columnChunk.readAllPages();
+        return createPageReaderInternal(columnDescriptor, columnChunk);
+    }
+
+    private PageReader createPageReaderInternal(ColumnDescriptor columnDescriptor, ParquetColumnChunk columnChunk)
+            throws IOException
+    {
+        if (!isEncryptedColumn(fileDecryptor, columnDescriptor)) {
+            return columnChunk.readAllPages(null, null, -1, -1);
+        }
+        else {
+            InternalColumnDecryptionSetup colDecSetup = fileDecryptor.getColumnSetup(ColumnPath.get(columnChunk.getDescriptor().getColumnDescriptor().getPath()));
+            //TODO: is currentBlock save as block.getOrdinal()?
+            return columnChunk.readAllPages(fileDecryptor, fileDecryptor.getFileAAD(), currentBlock, colDecSetup.getOrdinal());
+        }
+    }
+
+    private boolean isEncryptedColumn(InternalFileDecryptor fileDecryptor, ColumnDescriptor columnDescriptor)
+    {
+        ColumnPath columnPath = ColumnPath.get(columnDescriptor.getPath());
+        return fileDecryptor != null && !fileDecryptor.plaintextFile() && fileDecryptor.getColumnSetup(columnPath).isEncrypted();
     }
 
     protected byte[] allocateBlock(int length)
@@ -394,12 +419,14 @@ public class ParquetReader
         return buffer;
     }
 
-    private ColumnChunkMetaData getColumnChunkMetaData(ColumnDescriptor columnDescriptor)
+    protected ColumnChunkMetaData getColumnChunkMetaData(ColumnDescriptor columnDescriptor)
             throws IOException
     {
         for (ColumnChunkMetaData metadata : currentBlockMetadata.getColumns()) {
-            if (metadata.getPath().equals(ColumnPath.get(columnDescriptor.getPath()))) {
-                return metadata;
+            if (!HiddenColumnChunkMetaData.isHiddenColumn(metadata)) {
+                if (metadata.getPath().equals(ColumnPath.get(columnDescriptor.getPath()))) {
+                    return metadata;
+                }
             }
         }
         throw new ParquetCorruptionException("Metadata is missing for column: %s", columnDescriptor);
