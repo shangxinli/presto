@@ -1308,11 +1308,7 @@
                                 <excludes combine.children="append">
                                     <!-- TODO: fix this in Airlift resolver -->
                                     <exclude>org.codehaus.plexus:plexus-utils</exclude>
-<<<<<<< HEAD
                                     <exclude>com.google.guava:guava</exclude>
-=======
-                                    <exclude>javax.annotation:javax.annotation-api</exclude>
->>>>>>> a56b2b0b2e... Add decryption functionality to presto
                                 </excludes>
                             </requireUpperBoundDeps>
                         </rules>

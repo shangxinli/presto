@@ -217,7 +217,7 @@
         <dependency>
             <groupId>com.uber.crypto-metadata-retriever</groupId>
             <artifactId>crypto-metadata-retriever</artifactId>
-            <version>0.5.3</version>
+            <version>0.5.7</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.parquet</groupId>

@@ -21,15 +21,12 @@ import org.apache.parquet.HadoopReadOptions;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.crypto.FileDecryptionProperties;
 import org.apache.parquet.crypto.InternalFileDecryptor;
-import org.apache.parquet.format.FileMetaData;
 import org.apache.parquet.format.converter.ParquetMetadataConverter;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
-import org.apache.parquet.hadoop.metadata.ParquetMetadataExt;
 import org.apache.parquet.hadoop.util.HadoopStreams;
 import org.apache.parquet.io.SeekableInputStream;
 
 import java.io.IOException;
-import java.io.InputStream;
 
 public final class ParquetMetaDataUtils
 {
@@ -39,7 +36,7 @@ public final class ParquetMetaDataUtils
     {
     }
 
-    public static ParquetMetadataExt getParquetMetadata(FileDecryptionProperties fileDecryptionProperties,
+    public static ParquetMetadata getParquetMetadata(FileDecryptionProperties fileDecryptionProperties,
                                                      InternalFileDecryptor fileDecryptor,
                                                      Configuration configuration,
                                                      Path path,
@@ -47,30 +44,11 @@ public final class ParquetMetaDataUtils
                                                      FSDataInputStream fsDataInputStream) throws IOException
     {
         ParquetReadOptions options = createReadOptions(configuration, filter);
-        ParquetMetadataConverter converter = new ParquetMetadataConverter(options) {
-            @Override
-            public ParquetMetadata readParquetMetadata(InputStream from, ParquetMetadataConverter.MetadataFilter filter,
-                                                       InternalFileDecryptor fileDecryptor, boolean encryptedFooter,
-                                                       long footerOffset, int combinedFooterLength) throws IOException
-            {
-                FileMetaData fileMetaData = this.readFileMetaDataWithFilter(from, filter, fileDecryptor, encryptedFooter, footerOffset, combinedFooterLength);
-                ParquetMetadata parquetMetadata = this.fromParquetMetadata(fileMetaData);
-                return new ParquetMetadataExt(parquetMetadata, hasCryptoInfo(fileMetaData, encryptedFooter));
-            }
-        };
+        ParquetMetadataConverter converter = new ParquetMetadataConverter(options);
 
         try (SeekableInputStream in = createStream(fsDataInputStream)) {
             return MetadataReader.readFooter(path, fileSize, options, in, converter, fileDecryptionProperties, fileDecryptor);
         }
-    }
-
-    private static boolean hasCryptoInfo(FileMetaData fileMetaData, boolean encryptedFooter)
-    {
-        if (encryptedFooter) {
-            return true;
-        }
-
-        return fileMetaData.getEncryption_algorithm() != null && fileMetaData.getFooter_signing_key_metadata() != null;
     }
 
     private static ParquetReadOptions createReadOptions(Configuration configuration, ParquetMetadataConverter.MetadataFilter filter)

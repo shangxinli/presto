@@ -51,7 +51,6 @@ import org.apache.parquet.crypto.InternalFileDecryptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
-import org.apache.parquet.hadoop.metadata.ParquetMetadataExt;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.schema.GroupType;
 import org.apache.parquet.schema.MessageType;
@@ -288,9 +287,9 @@ public class ParquetPageSourceFactory
             FSDataInputStream inputStream = fileSystem.open(path);
             FileDecryptionProperties fileDecryptionProperties = fileEncDecryptorRetriever.getFileDecryptionProperties(configuration);
             InternalFileDecryptor fileDecryptor = new InternalFileDecryptor(fileDecryptionProperties);
-            ParquetMetadataExt parquetMetadataExt = ParquetMetaDataUtils.getParquetMetadata(fileDecryptionProperties, fileDecryptor,
+            ParquetMetadata parquetMetadata = ParquetMetaDataUtils.getParquetMetadata(fileDecryptionProperties, fileDecryptor,
                     configuration, path, fileSize, inputStream);
-            FileMetaData fileMetaData = parquetMetadataExt.getFileMetaData();
+            FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
             MessageType fileSchema = fileMetaData.getSchema();
             dataSource = buildHdfsParquetDataSource(inputStream, path, fileSize, stats);
 
@@ -304,7 +303,7 @@ public class ParquetPageSourceFactory
             MessageType requestedSchema = optionalRequestedSchema.orElse(new MessageType(fileSchema.getName(), ImmutableList.of()));
 
             ImmutableList.Builder<BlockMetaData> footerBlocks = ImmutableList.builder();
-            for (BlockMetaData block : parquetMetadataExt.getBlocks()) {
+            for (BlockMetaData block : parquetMetadata.getBlocks()) {
                 long firstDataPage = block.getColumns().get(0).getFirstDataPageOffset();
                 if (firstDataPage >= start && firstDataPage < start + length) {
                     footerBlocks.add(block);
@@ -323,12 +322,13 @@ public class ParquetPageSourceFactory
             }
 
             MessageColumnIO messageColumnIO = getColumnIO(fileSchema, requestedSchema);
+            // Parquet no-op decryptor is allowed to plaintext file now, hence the parameter 'fileDecryptor' is passed in always.
             ParquetReader parquetReader = new CryptoParquetReader(
                     messageColumnIO,
                     blocks.build(),
                     dataSource,
                     systemMemoryContext,
-                    parquetMetadataExt.getHasCryptoModules() ? fileDecryptor : null);
+                    fileDecryptor);
 
             return new ParquetPageSource(
                     parquetReader,

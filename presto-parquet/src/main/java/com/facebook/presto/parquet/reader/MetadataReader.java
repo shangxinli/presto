@@ -36,7 +36,6 @@ import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
-import org.apache.parquet.hadoop.metadata.ParquetMetadataExt;
 import org.apache.parquet.io.SeekableInputStream;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.OriginalType;
@@ -168,7 +167,7 @@ public final class MetadataReader
         return new ParquetMetadata(new org.apache.parquet.hadoop.metadata.FileMetaData(messageType, keyValueMetaData, fileMetaData.getCreated_by()), blocks);
     }
 
-    public static final ParquetMetadataExt readFooter(Path file,
+    public static final ParquetMetadata readFooter(Path file,
                                                    long fileSize,
                                                    ParquetReadOptions options,
                                                    SeekableInputStream inputStream,
@@ -197,7 +196,7 @@ public final class MetadataReader
         if (!encryptedFooterMode) {
             ParquetMetadata parquetMetadata = converter.readParquetMetadata(inputStream, options.getMetadataFilter(), fileDecryptor,
                     false, metadataIndex, metadataLength);
-            return (ParquetMetadataExt) parquetMetadata;
+            return parquetMetadata;
         }
 
         // Encrypted file with encrypted footer
@@ -210,7 +209,7 @@ public final class MetadataReader
         // footer offset and length required only for signed plaintext footers
         ParquetMetadata parquetMetadata = converter.readParquetMetadata(inputStream, options.getMetadataFilter(), fileDecryptor,
                 true, 0, 0);
-        return (ParquetMetadataExt) parquetMetadata;
+        return parquetMetadata;
     }
 
     private static MessageType readParquetSchema(List<SchemaElement> schema)
