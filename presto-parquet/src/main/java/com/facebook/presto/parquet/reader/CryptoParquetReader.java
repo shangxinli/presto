@@ -65,7 +65,7 @@ public class CryptoParquetReader
             dataSource.readFully(startingPosition, buffer);
             ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
             CryptoParquetColumnChunk columnChunk = new CryptoParquetColumnChunk(descriptor, buffer, 0, fileDecryptor);
-            if (fileDecryptor == null) {
+            if (fileDecryptor == null || fileDecryptor.plaintextFile()) {
                 columnReader.setPageReader(columnChunk.readAllPages());
             }
             else {

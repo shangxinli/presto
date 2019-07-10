@@ -108,8 +108,8 @@
         </dependency>
         <dependency>
             <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-format-structures</artifactId>
-            <version>${dep.parquet.version}</version>
+            <artifactId>parquet-format</artifactId>
+            <version>${dep.parquet.format.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
@@ -217,11 +217,11 @@
         <dependency>
             <groupId>com.uber.crypto-metadata-retriever</groupId>
             <artifactId>crypto-metadata-retriever</artifactId>
-            <version>0.5.7</version>
+            <version>0.10.1-1281-7782ae0eb55</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-format-structures</artifactId>
+                    <artifactId>parquet-format</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.apache.parquet</groupId>
