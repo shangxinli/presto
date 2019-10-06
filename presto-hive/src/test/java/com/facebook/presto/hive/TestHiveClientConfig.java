@@ -226,21 +226,10 @@ public class TestHiveClientConfig
                 .put("hive.s3select-pushdown.max-connections", "1234")
                 .put("hive.temporary-staging-directory-enabled", "false")
                 .put("hive.temporary-staging-directory-path", "updated")
-<<<<<<< HEAD
                 .put("hive.temporary-table-schema", "other")
                 .put("hive.temporary-table-storage-format", "DWRF")
                 .put("hive.temporary-table-compression-codec", "NONE")
                 .put("hive.pushdown-filter-enabled", "true")
-=======
-                .put("hive.preload-splits-for-grouped-execution", "true")
-                .put("hive.ipc.client.fallback-to-simple-auth-allowed", "true")
-                .put("hive.hdfs.viewfs.tmpdirs", "/tmp/foo#/foo,/tmp/bar#/bar")
-                .put("hive.file-status-cache-tables", "foo.bar1, foo.bar2")
-                .put("hive.file-status-cache-size", "1000")
-                .put("hive.file-status-cache-expire-time", "30m")
-                .put("hive.hdfs-observer-read-enabled", "true")
-                .put("hive.enable-parquet-column-decryption", "true")
->>>>>>> a56b2b0b2e... Add decryption functionality to presto
                 .build();
 
         HiveClientConfig expected = new HiveClientConfig()
@@ -331,21 +320,10 @@ public class TestHiveClientConfig
                 .setS3SelectPushdownMaxConnections(1234)
                 .setTemporaryStagingDirectoryEnabled(false)
                 .setTemporaryStagingDirectoryPath("updated")
-<<<<<<< HEAD
                 .setTemporaryTableSchema("other")
                 .setTemporaryTableStorageFormat(DWRF)
                 .setTemporaryTableCompressionCodec(NONE)
                 .setPushdownFilterEnabled(true);
-=======
-                .setPreloadSplitsForGroupedExecution(true)
-                .setClientFallbackSimpleAuthAllowed(true)
-                .setViewFsTempDirMapping("/tmp/foo#/foo,/tmp/bar#/bar")
-                .setFileStatusCacheTables("foo.bar1,foo.bar2")
-                .setFileStatusCacheMaxSize(1000)
-                .setFileStatusCacheExpireAfterWrite(new Duration(30, TimeUnit.MINUTES))
-                .setHdfsObserverReadEnabled(true)
-                .setParquetColumnDecryptionEnabled(true);
->>>>>>> a56b2b0b2e... Add decryption functionality to presto
 
         ConfigAssertions.assertFullMapping(properties, expected);
     }

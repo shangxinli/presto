@@ -66,9 +66,11 @@ public class ParquetReader
 
     private final List<BlockMetaData> blocks;
     private final List<PrimitiveColumnIO> columns;
+    private final ParquetDataSource dataSource;
     private final AggregatedMemoryContext systemMemoryContext;
 
     private int currentBlock;
+    private BlockMetaData currentBlockMetadata;
     private long currentPosition;
     private long currentGroupRowCount;
     private long nextRowInGroup;

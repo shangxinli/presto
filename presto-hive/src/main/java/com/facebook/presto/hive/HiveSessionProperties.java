@@ -90,9 +90,6 @@ public final class HiveSessionProperties
     public static final String VIRTUAL_BUCKET_COUNT = "virtual_bucket_count";
     public static final String MAX_BUCKETS_FOR_GROUPED_EXECUTION = "max_buckets_for_grouped_execution";
     public static final String OFFLINE_DATA_DEBUG_MODE_ENABLED = "offline_data_debug_mode_enabled";
-    private static final String PRELOAD_SPLITS_FOR_GROUPED_EXECUTION = "preload_splits_for_grouped_execution";
-    private static final String HDFS_OBSERVER_READ_ENABLED = "hdfs_observer_read_enabled";
-    private static final String ENABLE_PARQUET_COLUMN_DECRYPTION = "enable_parquet_column_decryption";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -392,23 +389,10 @@ public final class HiveSessionProperties
                         hiveClientConfig.getMaxBucketsForGroupedExecution(),
                         false),
                 booleanProperty(
-<<<<<<< HEAD
                         OFFLINE_DATA_DEBUG_MODE_ENABLED,
                         "allow reading from tables or partitions that are marked as offline or not readable",
                         false,
                         true));
-=======
-                        HDFS_OBSERVER_READ_ENABLED,
-                        "Experimental: enable Observer reads for HDFS",
-                        hiveClientConfig.isHdfsObserverReadEnabled(),
-                        false),
-
-                booleanProperty(
-                        ENABLE_PARQUET_COLUMN_DECRYPTION,
-                        "Is parquet column decryption enabled",
-                        hiveClientConfig.isParquetColumnDecryptionEnabled(),
-                        false));
->>>>>>> a56b2b0b2e... Add decryption functionality to presto
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -680,11 +664,6 @@ public final class HiveSessionProperties
     public static boolean isOfflineDataDebugModeEnabled(ConnectorSession session)
     {
         return session.getProperty(OFFLINE_DATA_DEBUG_MODE_ENABLED, Boolean.class);
-    }
-
-    public static boolean isParquetColumnDecryptionEnabled(ConnectorSession session)
-    {
-        return session.getProperty(ENABLE_PARQUET_COLUMN_DECRYPTION, Boolean.class);
     }
 
     public static PropertyMetadata<DataSize> dataSizeSessionProperty(String name, String description, DataSize defaultValue, boolean hidden)

@@ -144,40 +144,21 @@ public class ParquetPageSourceFactory
             return Optional.empty();
         }
 
-        if (isParquetColumnDecryptionEnabled(session)) {
-            return Optional.of(createCryptoParquetPageSource(
-                    hdfsEnvironment,
-                    session.getUser(),
-                    configuration,
-                    path,
-                    start,
-                    length,
-                    fileSize,
-                    columns,
-                    isUseParquetColumnNames(session),
-                    isFailOnCorruptedParquetStatistics(session),
-                    getParquetMaxReadBlockSize(session),
-                    typeManager,
-                    effectivePredicate,
-                    stats));
-        }
-        else {
-            return Optional.of(createParquetPageSource(
-                    hdfsEnvironment,
-                    session.getUser(),
-                    configuration,
-                    path,
-                    start,
-                    length,
-                    fileSize,
-                    columns,
-                    isUseParquetColumnNames(session),
-                    isFailOnCorruptedParquetStatistics(session),
-                    getParquetMaxReadBlockSize(session),
-                    typeManager,
-                    effectivePredicate,
-                    stats));
-        }
+        return Optional.of(createCryptoParquetPageSource(
+                hdfsEnvironment,
+                session.getUser(),
+                configuration,
+                path,
+                start,
+                length,
+                fileSize,
+                columns,
+                isUseParquetColumnNames(session),
+                isFailOnCorruptedParquetStatistics(session),
+                getParquetMaxReadBlockSize(session),
+                typeManager,
+                effectivePredicate,
+                stats));
     }
 
     public static ParquetPageSource createParquetPageSource(
