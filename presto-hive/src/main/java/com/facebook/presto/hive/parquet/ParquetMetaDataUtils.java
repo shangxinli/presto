@@ -46,9 +46,8 @@ public final class ParquetMetaDataUtils
         ParquetReadOptions options = createReadOptions(configuration, filter);
         ParquetMetadataConverter converter = new ParquetMetadataConverter(options);
 
-        try (SeekableInputStream in = createStream(fsDataInputStream)) {
-            return MetadataReader.readFooter(path, fileSize, options, in, converter, fileDecryptionProperties, fileDecryptor);
-        }
+        SeekableInputStream in = createStream(fsDataInputStream);
+        return MetadataReader.readFooter(path, fileSize, options, in, converter, fileDecryptionProperties, fileDecryptor);
     }
 
     private static ParquetReadOptions createReadOptions(Configuration configuration, ParquetMetadataConverter.MetadataFilter filter)
