@@ -62,6 +62,13 @@
         <dep.gcs.version>1.9.17</dep.gcs.version>
         <dep.parquet.version>1.10.1.1-encr-1.1</dep.parquet.version>
         <dep.parquet.format.version>2.7.0</dep.parquet.format.version>
+        <dep.thrift-maven-plugin.version>0.10.0</dep.thrift-maven-plugin.version>
+        <dep.format.thrift.executable>thrift</dep.format.thrift.executable>
+        <dep.shade.prefix>shaded.parquet</dep.shade.prefix>
+        <dep.slf4j.version>1.7.22</dep.slf4j.version>
+        <dep.format.thrift.version>0.9.3</dep.format.thrift.version>
+        <dep.thrift.executable>thrift</dep.thrift.executable>
+        <dep.format.thrift.executable>thrift</dep.format.thrift.executable>
 
         <!--
           America/Bahia_Banderas has:
@@ -91,6 +98,7 @@
         <module>presto-blackhole</module>
         <module>presto-memory</module>
         <module>presto-orc</module>
+        <module>presto-parquet-format-structures</module>
         <module>presto-parquet</module>
         <module>presto-rcfile</module>
         <module>presto-hive</module>

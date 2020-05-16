@@ -23,8 +23,6 @@ import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.ParquetDataSource;
 import com.facebook.presto.parquet.RichColumnDescriptor;
 import com.facebook.presto.parquet.predicate.Predicate;
-import com.facebook.presto.parquet.reader.CryptoParquetReader;
-import com.facebook.presto.parquet.reader.MetadataReader;
 import com.facebook.presto.parquet.reader.ParquetReader;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.ConnectorSession;
@@ -74,7 +72,6 @@ import static com.facebook.presto.hive.HiveErrorCode.HIVE_MISSING_DATA;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMATCH;
 import static com.facebook.presto.hive.HiveSessionProperties.getParquetMaxReadBlockSize;
 import static com.facebook.presto.hive.HiveSessionProperties.isFailOnCorruptedParquetStatistics;
-import static com.facebook.presto.hive.HiveSessionProperties.isParquetColumnDecryptionEnabled;
 import static com.facebook.presto.hive.HiveSessionProperties.isUseParquetColumnNames;
 import static com.facebook.presto.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
@@ -143,7 +140,7 @@ public class ParquetPageSourceFactory
             return Optional.empty();
         }
 
-        return Optional.of(createCryptoParquetPageSource(
+        return Optional.of(createParquetPageSource(
                 hdfsEnvironment,
                 session.getUser(),
                 configuration,
@@ -182,7 +179,10 @@ public class ParquetPageSourceFactory
         try {
             FileSystem fileSystem = hdfsEnvironment.getFileSystem(user, path, configuration);
             FSDataInputStream inputStream = fileSystem.open(path);
-            ParquetMetadata parquetMetadata = MetadataReader.readFooter(inputStream, path, fileSize);
+            FileDecryptionProperties fileDecryptionProperties = fileEncDecryptorRetriever.getFileDecryptionProperties(configuration);
+            InternalFileDecryptor fileDecryptor = new InternalFileDecryptor(fileDecryptionProperties);
+            ParquetMetadata parquetMetadata = ParquetMetaDataUtils.getParquetMetadata(fileDecryptionProperties, fileDecryptor,
+                    configuration, path, fileSize, inputStream);
             FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
             MessageType fileSchema = fileMetaData.getSchema();
             dataSource = buildHdfsParquetDataSource(inputStream, path, fileSize, stats);
@@ -228,114 +228,6 @@ public class ParquetPageSourceFactory
                     fileSchema,
                     messageColumnIO,
                     typeManager,
-                    columns,
-                    effectivePredicate,
-                    useParquetColumnNames);
-        }
-        catch (Exception e) {
-            try {
-                if (dataSource != null) {
-                    dataSource.close();
-                }
-            }
-            catch (IOException ignored) {
-            }
-            if (e instanceof PrestoException) {
-                throw (PrestoException) e;
-            }
-            if (e instanceof ParquetCorruptionException) {
-                throw new PrestoException(HIVE_BAD_DATA, e);
-            }
-            if (nullToEmpty(e.getMessage()).trim().equals("Filesystem closed") ||
-                    e instanceof FileNotFoundException) {
-                throw new PrestoException(HIVE_CANNOT_OPEN_SPLIT, e);
-            }
-            String message = format("Error opening Hive split %s (offset=%s, length=%s): %s", path, start, length, e.getMessage());
-            if (e.getClass().getSimpleName().equals("BlockMissingException")) {
-                throw new PrestoException(HIVE_MISSING_DATA, message, e);
-            }
-            throw new PrestoException(HIVE_CANNOT_OPEN_SPLIT, message, e);
-        }
-    }
-
-    /**
-     * This method duplicates createParquetPageSource() and adds decryption functionality.
-     *
-     * TODO: This method will replace createParquetPageSource() later once decryption code is baked well.
-     */
-    public static ParquetPageSource createCryptoParquetPageSource(
-            HdfsEnvironment hdfsEnvironment,
-            String user,
-            Configuration configuration,
-            Path path,
-            long start,
-            long length,
-            long fileSize,
-            Properties schema,
-            List<HiveColumnHandle> columns,
-            boolean useParquetColumnNames,
-            boolean failOnCorruptedParquetStatistics,
-            TypeManager typeManager,
-            TupleDomain<HiveColumnHandle> effectivePredicate,
-            FileFormatDataSourceStats stats)
-    {
-        AggregatedMemoryContext systemMemoryContext = newSimpleAggregatedMemoryContext();
-
-        ParquetDataSource dataSource = null;
-        try {
-            FileSystem fileSystem = hdfsEnvironment.getFileSystem(user, path, configuration);
-            FSDataInputStream inputStream = fileSystem.open(path);
-            FileDecryptionProperties fileDecryptionProperties = fileEncDecryptorRetriever.getFileDecryptionProperties(configuration);
-            InternalFileDecryptor fileDecryptor = new InternalFileDecryptor(fileDecryptionProperties);
-            ParquetMetadata parquetMetadata = ParquetMetaDataUtils.getParquetMetadata(fileDecryptionProperties, fileDecryptor,
-                    configuration, path, fileSize, inputStream);
-            FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
-            MessageType fileSchema = fileMetaData.getSchema();
-            dataSource = buildHdfsParquetDataSource(inputStream, path, fileSize, stats);
-
-            Optional<MessageType> optionalRequestedSchema = columns.stream()
-                    .filter(column -> column.getColumnType() == REGULAR)
-                    .map(column -> getColumnType(column, fileSchema, useParquetColumnNames))
-                    .filter(Objects::nonNull)
-                    .map(type -> new MessageType(fileSchema.getName(), type))
-                    .reduce(MessageType::union);
-
-            MessageType requestedSchema = optionalRequestedSchema.orElse(new MessageType(fileSchema.getName(), ImmutableList.of()));
-
-            ImmutableList.Builder<BlockMetaData> footerBlocks = ImmutableList.builder();
-            for (BlockMetaData block : parquetMetadata.getBlocks()) {
-                long firstDataPage = block.getColumns().get(0).getFirstDataPageOffset();
-                if (firstDataPage >= start && firstDataPage < start + length) {
-                    footerBlocks.add(block);
-                }
-            }
-
-            Map<List<String>, RichColumnDescriptor> descriptorsByPath = getDescriptors(fileSchema, requestedSchema);
-            TupleDomain<ColumnDescriptor> parquetTupleDomain = getParquetTupleDomain(descriptorsByPath, effectivePredicate);
-            Predicate parquetPredicate = buildPredicate(requestedSchema, parquetTupleDomain, descriptorsByPath);
-            final ParquetDataSource finalDataSource = dataSource;
-            ImmutableList.Builder<BlockMetaData> blocks = ImmutableList.builder();
-            for (BlockMetaData block : footerBlocks.build()) {
-                if (predicateMatches(parquetPredicate, block, finalDataSource, descriptorsByPath, parquetTupleDomain, failOnCorruptedParquetStatistics)) {
-                    blocks.add(block);
-                }
-            }
-
-            MessageColumnIO messageColumnIO = getColumnIO(fileSchema, requestedSchema);
-            // Parquet no-op decryptor is allowed to plaintext file now, hence the parameter 'fileDecryptor' is passed in always.
-            ParquetReader parquetReader = new CryptoParquetReader(
-                    messageColumnIO,
-                    blocks.build(),
-                    dataSource,
-                    systemMemoryContext,
-                    fileDecryptor);
-
-            return new ParquetPageSource(
-                    parquetReader,
-                    fileSchema,
-                    messageColumnIO,
-                    typeManager,
-                    schema,
                     columns,
                     effectivePredicate,
                     useParquetColumnNames);

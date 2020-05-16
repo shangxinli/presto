@@ -1382,17 +1382,4 @@ public class HiveClientConfig
         this.pushdownFilterEnabled = pushdownFilterEnabled;
         return this;
     }
-
-    @Config("hive.enable-parquet-column-decryption")
-    @ConfigDescription("enable parquet column decryption")
-    public HiveClientConfig setParquetColumnDecryptionEnabled(boolean isParquetColumnDecryptionEnabled)
-    {
-        this.isParquetColumnDecryptionEnabled = isParquetColumnDecryptionEnabled;
-        return this;
-    }
-
-    public boolean isParquetColumnDecryptionEnabled()
-    {
-        return this.isParquetColumnDecryptionEnabled;
-    }
 }

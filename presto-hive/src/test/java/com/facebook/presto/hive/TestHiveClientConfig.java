@@ -132,8 +132,7 @@ public class TestHiveClientConfig
                 .setTemporaryTableSchema("default")
                 .setTemporaryTableStorageFormat(ORC)
                 .setTemporaryTableCompressionCodec(SNAPPY)
-                .setPushdownFilterEnabled(false)
-                .setParquetColumnDecryptionEnabled(false));
+                .setPushdownFilterEnabled(false));
     }
 
     @Test
