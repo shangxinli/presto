@@ -20,6 +20,7 @@ import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.ParquetDataSource;
 import com.facebook.presto.parquet.ParquetEncoding;
 import com.facebook.presto.parquet.RichColumnDescriptor;
+import com.facebook.presto.parquet.reader.ColumnIndexStoreImpl;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -36,12 +37,15 @@ import org.apache.parquet.format.PageType;
 import org.apache.parquet.format.Util;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
+import org.apache.parquet.hadoop.metadata.ColumnPath;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore;
 import org.apache.parquet.schema.MessageType;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -94,6 +98,12 @@ public final class PredicateUtils
             return false;
         }
 
+        // Page stats is finer grained but relatively more expensive, so we do the filtering after above block filtering.
+        ColumnIndexStore ciStore = getColumnIndexStore(dataSource, block, descriptorsByPath);
+        if (!parquetPredicate.matches(block.getRowCount(), ciStore, dataSource.getId(), failOnCorruptedParquetStatistics)) {
+            return false;
+        }
+
         return dictionaryPredicatesMatch(parquetPredicate, block, dataSource, descriptorsByPath, parquetTupleDomain);
     }
 
@@ -110,6 +120,16 @@ public final class PredicateUtils
             }
         }
         return statistics.build();
+    }
+
+    private static ColumnIndexStore getColumnIndexStore(ParquetDataSource dataSource, BlockMetaData blockMetadata, Map<List<String>, RichColumnDescriptor> descriptorsByPath)
+    {
+        // TODO: Here we read one more time
+        Set<ColumnPath> paths = new HashSet<>();
+        for (List<String> path : descriptorsByPath.keySet()) {
+            paths.add(ColumnPath.get((String[]) path.toArray()));
+        }
+        return ColumnIndexStoreImpl.create(dataSource, blockMetadata, paths);
     }
 
     private static boolean dictionaryPredicatesMatch(Predicate parquetPredicate, BlockMetaData blockMetadata, ParquetDataSource dataSource, Map<List<String>, RichColumnDescriptor> descriptorsByPath, TupleDomain<ColumnDescriptor> parquetTupleDomain)

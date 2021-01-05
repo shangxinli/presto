@@ -16,6 +16,8 @@ package com.facebook.presto.parquet;
 import io.airlift.slice.Slice;
 import org.apache.parquet.column.statistics.Statistics;
 
+import java.util.Optional;
+
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
@@ -43,7 +45,24 @@ public class DataPageV2
             Statistics<?> statistics,
             boolean isCompressed)
     {
-        super(repetitionLevels.length() + definitionLevels.length() + slice.length(), uncompressedSize, valueCount);
+        this(rowCount, nullCount, valueCount, -1, repetitionLevels, definitionLevels,
+                dataEncoding, slice, uncompressedSize, statistics, isCompressed);
+    }
+
+    public DataPageV2(
+            int rowCount,
+            int nullCount,
+            int valueCount,
+            long firstRowIndex,
+            Slice repetitionLevels,
+            Slice definitionLevels,
+            ParquetEncoding dataEncoding,
+            Slice slice,
+            int uncompressedSize,
+            Statistics<?> statistics,
+            boolean isCompressed)
+    {
+        super(repetitionLevels.length() + definitionLevels.length() + slice.length(), uncompressedSize, valueCount, firstRowIndex);
         this.rowCount = rowCount;
         this.nullCount = nullCount;
         this.repetitionLevels = requireNonNull(repetitionLevels, "repetitionLevels slice is null");
@@ -92,6 +111,12 @@ public class DataPageV2
     public boolean isCompressed()
     {
         return isCompressed;
+    }
+
+    @Override
+    public Optional<Integer> getIndexRowCount()
+    {
+        return Optional.of(rowCount);
     }
 
     @Override

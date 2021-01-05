@@ -64,4 +64,8 @@ public abstract class AbstractParquetDataSource
     }
 
     protected abstract void readInternal(long position, byte[] buffer, int bufferOffset, int bufferLength);
+
+    // protected abstract ColumnIndex readColumnIndex(ColumnChunkMetaData column) throws IOException;
+
+    // protected abstract OffsetIndex readOffsetIndex(ColumnChunkMetaData column) throws IOException;
 }

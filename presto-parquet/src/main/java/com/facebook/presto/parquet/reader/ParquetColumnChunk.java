@@ -19,6 +19,7 @@ import com.facebook.presto.parquet.DataPageV2;
 import com.facebook.presto.parquet.DictionaryPage;
 import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.cache.MetadataReader;
+import com.facebook.presto.parquet.reader.ColumnIndexFilterUtils.OffsetRange;
 import io.airlift.slice.Slice;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.format.DataPageHeader;
@@ -61,7 +62,19 @@ public class ParquetColumnChunk
         return Util.readPageHeader(this);
     }
 
-    public PageReader readAllPages()
+    public PageReader readAllPages(List<OffsetRange> offsetRanges)
+            throws IOException
+    {
+        // TODO: offsetRanges.size() == 0 should readAllPagesInternal
+        if (offsetRanges == null || offsetRanges.size() == 0) {
+            return readAllPagesInternal();
+        }
+        else {
+            return readAllPagesInternal(offsetRanges);
+        }
+    }
+
+    private PageReader readAllPagesInternal()
             throws IOException
     {
         List<DataPage> pages = new ArrayList<>();
@@ -86,6 +99,54 @@ public class ParquetColumnChunk
                     break;
                 default:
                     skip(compressedPageSize);
+                    break;
+            }
+        }
+        return new PageReader(descriptor.getColumnChunkMetaData().getCodec(), pages, dictionaryPage);
+    }
+
+    private PageReader readAllPagesInternal(List<OffsetRange> offsetRanges)
+            throws IOException
+    {
+        // TODO: asssert offsetRanges has > 0 elements
+        List<DataPage> pages = new ArrayList<>();
+        DictionaryPage dictionaryPage = null;
+
+        int i = 0;
+        OffsetRange offsetRange = offsetRanges.get(i);
+        // TODO: for long to int check
+        this.pos = (int) offsetRange.getOffset();
+        while (i < offsetRanges.size()) {
+            PageHeader pageHeader = readPageHeader();
+            int uncompressedPageSize = pageHeader.getUncompressed_page_size();
+            int compressedPageSize = pageHeader.getCompressed_page_size();
+            switch (pageHeader.type) {
+                case DICTIONARY_PAGE:
+                    if (dictionaryPage != null) {
+                        throw new ParquetCorruptionException("%s has more than one dictionary page in column chunk", descriptor.getColumnDescriptor());
+                    }
+                    dictionaryPage = readDictionaryPage(pageHeader, uncompressedPageSize, compressedPageSize);
+                    break;
+                case DATA_PAGE:
+                    readDataPageV1(pageHeader, uncompressedPageSize, compressedPageSize, pages);
+                    offsetRange = offsetRanges.get(i);
+                    // TODO: for long to int check
+                    this.pos = (int) offsetRange.getOffset();
+                    i++;
+                    break;
+                case DATA_PAGE_V2:
+                    readDataPageV2(pageHeader, uncompressedPageSize, compressedPageSize, pages);
+                    offsetRange = offsetRanges.get(i);
+                    // TODO: for long to int check
+                    this.pos = (int) offsetRange.getOffset();
+                    i++;
+                    break;
+                default:
+                    skip(compressedPageSize);
+                    offsetRange = offsetRanges.get(i);
+                    // TODO: for long to int check
+                    this.pos = (int) offsetRange.getOffset();
+                    i++;
                     break;
             }
         }

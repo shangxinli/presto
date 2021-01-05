@@ -17,6 +17,7 @@ import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.ParquetDataSourceId;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.statistics.Statistics;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore;
 
 import java.util.Map;
 
@@ -33,6 +34,13 @@ public interface Predicate
 
         @Override
         public boolean matches(DictionaryDescriptor dictionary)
+        {
+            return true;
+        }
+
+        @Override
+        public boolean matches(long numberOfRows, ColumnIndexStore ciStore, ParquetDataSourceId id, boolean failOnCorruptedParquetStatistics)
+                throws ParquetCorruptionException
         {
             return true;
         }
@@ -58,4 +66,7 @@ public interface Predicate
      * @param dictionary The single column dictionary
      */
     boolean matches(DictionaryDescriptor dictionary);
+
+    boolean matches(long numberOfRows, ColumnIndexStore ciStore, ParquetDataSourceId id, boolean failOnCorruptedParquetStatistics)
+            throws ParquetCorruptionException;
 }

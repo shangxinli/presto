@@ -19,12 +19,16 @@ import io.airlift.slice.Slice;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.parquet.format.BoundaryOrder;
 import org.apache.parquet.format.ColumnChunk;
+import org.apache.parquet.format.ColumnIndex;
 import org.apache.parquet.format.ColumnMetaData;
 import org.apache.parquet.format.ConvertedType;
 import org.apache.parquet.format.Encoding;
 import org.apache.parquet.format.FileMetaData;
 import org.apache.parquet.format.KeyValue;
+import org.apache.parquet.format.OffsetIndex;
+import org.apache.parquet.format.PageLocation;
 import org.apache.parquet.format.RowGroup;
 import org.apache.parquet.format.SchemaElement;
 import org.apache.parquet.format.Statistics;
@@ -35,6 +39,10 @@ import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
+import org.apache.parquet.internal.column.columnindex.ColumnIndexBuilder;
+import org.apache.parquet.internal.column.columnindex.OffsetIndexBuilder;
+import org.apache.parquet.internal.hadoop.metadata.IndexReference;
+import org.apache.parquet.schema.ColumnOrder;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.OriginalType;
 import org.apache.parquet.schema.PrimitiveType;
@@ -156,6 +164,8 @@ public final class MetadataReader
                             metaData.num_values,
                             metaData.total_compressed_size,
                             metaData.total_uncompressed_size);
+                    column.setColumnIndexReference(toColumnIndexReference(columnChunk));
+                    column.setOffsetIndexReference(toOffsetIndexReference(columnChunk));
                     blockMetaData.addColumn(column);
                 }
                 blockMetaData.setPath(filePath);
@@ -172,6 +182,103 @@ public final class MetadataReader
         }
         ParquetMetadata parquetMetadata = new ParquetMetadata(new org.apache.parquet.hadoop.metadata.FileMetaData(messageType, keyValueMetaData, fileMetaData.getCreated_by()), blocks);
         return new ParquetFileMetadata(parquetMetadata, toIntExact(metadataLength));
+    }
+
+    private static IndexReference toColumnIndexReference(ColumnChunk columnChunk)
+    {
+        if (columnChunk.isSetColumn_index_offset() && columnChunk.isSetColumn_index_length()) {
+            return new IndexReference(columnChunk.getColumn_index_offset(), columnChunk.getColumn_index_length());
+        }
+        return null;
+    }
+
+    private static IndexReference toOffsetIndexReference(ColumnChunk columnChunk)
+    {
+        if (columnChunk.isSetOffset_index_offset() && columnChunk.isSetOffset_index_length()) {
+            return new IndexReference(columnChunk.getOffset_index_offset(), columnChunk.getOffset_index_length());
+        }
+        return null;
+    }
+
+    private static BoundaryOrder toParquetBoundaryOrder(
+            org.apache.parquet.internal.column.columnindex.BoundaryOrder boundaryOrder)
+    {
+        switch (boundaryOrder) {
+            case ASCENDING:
+                return BoundaryOrder.ASCENDING;
+            case DESCENDING:
+                return BoundaryOrder.DESCENDING;
+            case UNORDERED:
+                return BoundaryOrder.UNORDERED;
+            default:
+                throw new IllegalArgumentException("Unsupported boundary order: " + boundaryOrder);
+        }
+    }
+
+    private static org.apache.parquet.internal.column.columnindex.BoundaryOrder fromParquetBoundaryOrder(
+            BoundaryOrder boundaryOrder)
+    {
+        switch (boundaryOrder) {
+            case ASCENDING:
+                return org.apache.parquet.internal.column.columnindex.BoundaryOrder.ASCENDING;
+            case DESCENDING:
+                return org.apache.parquet.internal.column.columnindex.BoundaryOrder.DESCENDING;
+            case UNORDERED:
+                return org.apache.parquet.internal.column.columnindex.BoundaryOrder.UNORDERED;
+            default:
+                throw new IllegalArgumentException("Unsupported boundary order: " + boundaryOrder);
+        }
+    }
+
+    public static ColumnIndex toParquetColumnIndex(PrimitiveType type,
+                                                   org.apache.parquet.internal.column.columnindex.ColumnIndex columnIndex)
+    {
+        if (!isMinMaxStatsSupported(type) || columnIndex == null) {
+            return null;
+        }
+        ColumnIndex parquetColumnIndex = new ColumnIndex(
+                columnIndex.getNullPages(),
+                columnIndex.getMinValues(),
+                columnIndex.getMaxValues(),
+                toParquetBoundaryOrder(columnIndex.getBoundaryOrder()));
+        parquetColumnIndex.setNull_counts(columnIndex.getNullCounts());
+        return parquetColumnIndex;
+    }
+
+    public static org.apache.parquet.internal.column.columnindex.ColumnIndex fromParquetColumnIndex(PrimitiveType type,
+                                                                                                    ColumnIndex parquetColumnIndex)
+    {
+        if (!isMinMaxStatsSupported(type)) {
+            return null;
+        }
+        return ColumnIndexBuilder.build(type,
+                fromParquetBoundaryOrder(parquetColumnIndex.getBoundary_order()),
+                parquetColumnIndex.getNull_pages(),
+                parquetColumnIndex.getNull_counts(),
+                parquetColumnIndex.getMin_values(),
+                parquetColumnIndex.getMax_values());
+    }
+
+    public static OffsetIndex toParquetOffsetIndex(org.apache.parquet.internal.column.columnindex.OffsetIndex offsetIndex)
+    {
+        List<PageLocation> pageLocations = new ArrayList<>(offsetIndex.getPageCount());
+        for (int i = 0, n = offsetIndex.getPageCount(); i < n; ++i) {
+            pageLocations.add(new PageLocation(
+                    offsetIndex.getOffset(i),
+                    offsetIndex.getCompressedPageSize(i),
+                    offsetIndex.getFirstRowIndex(i)));
+        }
+        return new OffsetIndex(pageLocations);
+    }
+
+    public static org.apache.parquet.internal.column.columnindex.OffsetIndex fromParquetOffsetIndex(
+            OffsetIndex parquetOffsetIndex)
+    {
+        OffsetIndexBuilder builder = OffsetIndexBuilder.getBuilder();
+        for (PageLocation pageLocation : parquetOffsetIndex.getPage_locations()) {
+            builder.add(pageLocation.getOffset(), pageLocation.getCompressed_page_size(), pageLocation.getFirst_row_index());
+        }
+        return builder.build();
     }
 
     private static MessageType readParquetSchema(List<SchemaElement> schema)
@@ -316,5 +423,10 @@ public final class MetadataReader
             throws IOException
     {
         return readFooter(inputStream, new Path(parquetDataSourceId.toString()), fileSize);
+    }
+
+    private static boolean isMinMaxStatsSupported(PrimitiveType type)
+    {
+        return type.columnOrder().getColumnOrderName() == ColumnOrder.ColumnOrderName.TYPE_DEFINED_ORDER;
     }
 }

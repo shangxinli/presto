@@ -34,24 +34,35 @@ import com.facebook.presto.parquet.ParquetDataSource;
 import com.facebook.presto.parquet.ParquetResultVerifierUtils;
 import com.facebook.presto.parquet.PrimitiveField;
 import com.facebook.presto.parquet.RichColumnDescriptor;
+import com.facebook.presto.parquet.reader.ColumnIndexFilterUtils.OffsetRange;
 import io.airlift.units.DataSize;
 import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
 import it.unimi.dsi.fastutil.booleans.BooleanList;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import org.apache.parquet.column.ColumnDescriptor;
+import org.apache.parquet.filter2.compat.FilterCompat;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
+import org.apache.parquet.internal.column.columnindex.OffsetIndex;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexFilter;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore;
+import org.apache.parquet.internal.filter2.columnindex.RowRanges;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.io.PrimitiveColumnIO;
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.IntegerType.INTEGER;
@@ -82,7 +93,7 @@ public class ParquetReader
     private final boolean batchReadEnabled;
     private final boolean enableVerification;
 
-    private int currentBlock;
+    private int currentBlock = -1;
     private BlockMetaData currentBlockMetadata;
     private long currentPosition;
     private long currentGroupRowCount;
@@ -98,6 +109,10 @@ public class ParquetReader
     private int maxBatchSize = MAX_VECTOR_LENGTH;
 
     private AggregatedMemoryContext currentRowGroupMemoryContext;
+
+    private final List<ColumnIndexStore> blockIndexStores;
+    private final List<RowRanges> blockRowRanges;
+    private final Map<ColumnPath, ColumnDescriptor> paths = new HashMap<>();
 
     public ParquetReader(MessageColumnIO
             messageColumnIO,
@@ -119,6 +134,12 @@ public class ParquetReader
         this.enableVerification = enableVerification;
         verificationColumnReaders = enableVerification ? new ColumnReader[columns.size()] : null;
         maxBytesPerCell = new long[columns.size()];
+        this.blockIndexStores = listWithNulls(this.blocks.size());
+        this.blockRowRanges = listWithNulls(this.blocks.size());
+        for (PrimitiveColumnIO column : columns) {
+            ColumnDescriptor columnDescriptor = column.getColumnDescriptor();
+            this.paths.put(ColumnPath.get(columnDescriptor.getPath()), columnDescriptor);
+        }
     }
 
     @Override
@@ -159,6 +180,7 @@ public class ParquetReader
 
     private boolean advanceToNextRowGroup()
     {
+        currentBlock = currentBlock + 1;
         currentRowGroupMemoryContext.close();
         currentRowGroupMemoryContext = systemMemoryContext.newAggregatedMemoryContext();
 
@@ -166,7 +188,16 @@ public class ParquetReader
             return false;
         }
         currentBlockMetadata = blocks.get(currentBlock);
-        currentBlock = currentBlock + 1;
+
+        getColumnIndexStore(currentBlock);
+        RowRanges rowRanges = getRowRanges(currentBlock);
+        long rowCount = rowRanges.rowCount();
+        if (rowCount == 0) {
+            return false;
+        }
+        if (rowCount == blocks.get(currentBlock).getRowCount()) {
+            // TODO: All rows are matching -> fall back to the non-filtering path
+        }
 
         nextRowInGroup = 0L;
         currentGroupRowCount = currentBlockMetadata.getRowCount();
@@ -247,12 +278,20 @@ public class ParquetReader
             dataSource.readFully(startingPosition, buffer);
             ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
             ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffer, 0);
-            columnReader.init(columnChunk.readAllPages(), field);
+
+            OffsetIndex offsetIndex = getColumnIndexStore(currentBlock).getOffsetIndex(metadata.getPath());
+            OffsetIndex filteredOffsetIndex = ColumnIndexFilterUtils.filterOffsetIndex(offsetIndex, getRowRanges(currentBlock),
+                    blocks.get(currentBlock).getRowCount());
+
+            List<OffsetRange> offsetRanges = ColumnIndexFilterUtils.calculateOffsetRanges(filteredOffsetIndex, metadata,
+                    offsetIndex.getOffset(0), startingPosition);
+            // List<OffsetRange> offsetRanges = calculateOffsetRanges(columnChunk, startingPosition);
+            columnReader.init(columnChunk.readAllPages(null), field);
 
             if (enableVerification) {
                 ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
                 ParquetColumnChunk columnChunkVerfication = new ParquetColumnChunk(descriptor, buffer, 0);
-                verificationColumnReader.init(columnChunkVerfication.readAllPages(), field);
+                verificationColumnReader.init(columnChunkVerfication.readAllPages(null), field);
             }
         }
 
@@ -274,6 +313,18 @@ public class ParquetReader
             maxBytesPerCell[fieldId] = bytesPerCell;
         }
         return columnChunk;
+    }
+
+    private List<OffsetRange> calculateOffsetRanges(ParquetColumnChunk columnChunk, long startingPosition)
+    {
+        List<OffsetRange> offsetRanges = new ArrayList<>();
+        if (columnChunk.getDescriptor().getColumnDescriptor().getPath()[0].equals("intcol")) {
+            offsetRanges.add(new OffsetRange(4 - startingPosition, 104));
+        }
+        else {
+            offsetRanges.add(new OffsetRange(53436 - startingPosition, 153));
+        }
+        return offsetRanges;
     }
 
     private byte[] allocateBlock(int length)
@@ -300,7 +351,6 @@ public class ParquetReader
         for (PrimitiveColumnIO columnIO : columns) {
             RichColumnDescriptor column = new RichColumnDescriptor(columnIO.getColumnDescriptor(), columnIO.getType().asPrimitiveType());
             columnReaders[columnIO.getId()] = ColumnReaderFactory.createReader(column, batchReadEnabled);
-
             if (enableVerification) {
                 verificationColumnReaders[columnIO.getId()] = ColumnReaderFactory.createReader(column, false);
             }
@@ -407,5 +457,42 @@ public class ParquetReader
         }
 
         return newBlockBuilder.build();
+    }
+
+    private static <T> List<T> listWithNulls(int size)
+    {
+        return Stream.generate(() -> (T) null).limit(size).collect(Collectors.toCollection(ArrayList<T>::new));
+    }
+
+    private long getFilteredRecordCount()
+    {
+        // TODO: Add switch for useColumnIndexFilter
+        long total = 0;
+        for (int i = 0, n = blocks.size(); i < n; ++i) {
+            total += getRowRanges(i).rowCount();
+        }
+        return total;
+    }
+
+    private ColumnIndexStore getColumnIndexStore(int blockIndex)
+    {
+        ColumnIndexStore ciStore = blockIndexStores.get(blockIndex);
+        if (ciStore == null) {
+            ciStore = ColumnIndexStoreImpl.create(dataSource, blocks.get(blockIndex), paths.keySet());
+            blockIndexStores.set(blockIndex, ciStore);
+        }
+        return ciStore;
+    }
+
+    private RowRanges getRowRanges(int blockIndex)
+    {
+        RowRanges rowRanges = blockRowRanges.get(blockIndex);
+        if (rowRanges == null) {
+            // TODO: Hardcoded parquet filters
+            rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.NOOP, getColumnIndexStore(blockIndex),
+                    paths.keySet(), blocks.get(blockIndex).getRowCount());
+            blockRowRanges.set(blockIndex, rowRanges);
+        }
+        return rowRanges;
     }
 }

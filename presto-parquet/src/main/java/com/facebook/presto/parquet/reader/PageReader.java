@@ -17,7 +17,9 @@ import com.facebook.presto.parquet.DataPage;
 import com.facebook.presto.parquet.DataPageV1;
 import com.facebook.presto.parquet.DataPageV2;
 import com.facebook.presto.parquet.DictionaryPage;
+import io.airlift.slice.Slice;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+import org.apache.parquet.internal.column.columnindex.OffsetIndex;
 
 import java.io.IOException;
 import java.util.LinkedList;
@@ -32,10 +34,25 @@ public class PageReader
     private final long valueCount;
     private final List<DataPage> compressedPages;
     private final DictionaryPage compressedDictionaryPage;
+    // null means no page synchronization is required; firstRowIndex will not be returned by the pages
+    private final OffsetIndex offsetIndex;
+    private final long rowCount;
+    // TODO: private int pageIndex = 0;
+    private int pageIndex;
 
     public PageReader(CompressionCodecName codec,
             List<DataPage> compressedPages,
             DictionaryPage compressedDictionaryPage)
+    {
+        // TODO: 0 is not OK
+        this(codec, compressedPages, compressedDictionaryPage, null, 0L);
+    }
+
+    public PageReader(CompressionCodecName codec,
+                      List<DataPage> compressedPages,
+                      DictionaryPage compressedDictionaryPage,
+                      OffsetIndex offsetIndex,
+                      long rowCount)
     {
         this.codec = codec;
         this.compressedPages = new LinkedList<>(compressedPages);
@@ -45,6 +62,9 @@ public class PageReader
             count += page.getValueCount();
         }
         this.valueCount = count;
+        this.offsetIndex = offsetIndex;
+        this.rowCount = rowCount;
+        this.pageIndex = 0;
     }
 
     public long getTotalValueCount()
@@ -58,17 +78,34 @@ public class PageReader
             return null;
         }
         DataPage compressedPage = compressedPages.remove(0);
+        final int currentPageIndex = pageIndex++;
         try {
             if (compressedPage instanceof DataPageV1) {
                 DataPageV1 dataPageV1 = (DataPageV1) compressedPage;
-                return new DataPageV1(
-                        decompress(codec, dataPageV1.getSlice(), dataPageV1.getUncompressedSize()),
-                        dataPageV1.getValueCount(),
-                        dataPageV1.getUncompressedSize(),
-                        dataPageV1.getStatistics(),
-                        dataPageV1.getRepetitionLevelEncoding(),
-                        dataPageV1.getDefinitionLevelEncoding(),
-                        dataPageV1.getValueEncoding());
+                Slice slice = decompress(codec, dataPageV1.getSlice(), dataPageV1.getUncompressedSize());
+                if (offsetIndex == null) {
+                    return new DataPageV1(
+                            slice,
+                            dataPageV1.getValueCount(),
+                            dataPageV1.getUncompressedSize(),
+                            dataPageV1.getStatistics(),
+                            dataPageV1.getRepetitionLevelEncoding(),
+                            dataPageV1.getDefinitionLevelEncoding(),
+                            dataPageV1.getValueEncoding());
+                }
+                else {
+                    long firstRowIndex = offsetIndex.getFirstRowIndex(currentPageIndex);
+                    return new DataPageV1(
+                            slice,
+                            dataPageV1.getValueCount(),
+                            dataPageV1.getUncompressedSize(),
+                            firstRowIndex,
+                            checkedCast(offsetIndex.getLastRowIndex(currentPageIndex, rowCount) - firstRowIndex + 1),
+                            dataPageV1.getStatistics(),
+                            dataPageV1.getRepetitionLevelEncoding(),
+                            dataPageV1.getDefinitionLevelEncoding(),
+                            dataPageV1.getValueEncoding());
+                }
             }
             else {
                 DataPageV2 dataPageV2 = (DataPageV2) compressedPage;
@@ -78,17 +115,35 @@ public class PageReader
                 int uncompressedSize = toIntExact(dataPageV2.getUncompressedSize()
                         - dataPageV2.getDefinitionLevels().length()
                         - dataPageV2.getRepetitionLevels().length());
-                return new DataPageV2(
-                        dataPageV2.getRowCount(),
-                        dataPageV2.getNullCount(),
-                        dataPageV2.getValueCount(),
-                        dataPageV2.getRepetitionLevels(),
-                        dataPageV2.getDefinitionLevels(),
-                        dataPageV2.getDataEncoding(),
-                        decompress(codec, dataPageV2.getSlice(), uncompressedSize),
-                        dataPageV2.getUncompressedSize(),
-                        dataPageV2.getStatistics(),
-                        false);
+                Slice slice = decompress(codec, dataPageV2.getSlice(), uncompressedSize);
+                if (offsetIndex == null) {
+                    return new DataPageV2(
+                            dataPageV2.getRowCount(),
+                            dataPageV2.getNullCount(),
+                            dataPageV2.getValueCount(),
+                            dataPageV2.getRepetitionLevels(),
+                            dataPageV2.getDefinitionLevels(),
+                            dataPageV2.getDataEncoding(),
+                            slice,
+                            dataPageV2.getUncompressedSize(),
+                            dataPageV2.getStatistics(),
+                            false);
+                }
+                else {
+                    long firstRowIndex = offsetIndex.getFirstRowIndex(currentPageIndex);
+                    return new DataPageV2(
+                            dataPageV2.getRowCount(),
+                            dataPageV2.getNullCount(),
+                            dataPageV2.getValueCount(),
+                            firstRowIndex,
+                            dataPageV2.getRepetitionLevels(),
+                            dataPageV2.getDefinitionLevels(),
+                            dataPageV2.getDataEncoding(),
+                            slice,
+                            dataPageV2.getUncompressedSize(),
+                            dataPageV2.getStatistics(),
+                            false);
+                }
             }
         }
         catch (IOException e) {
@@ -110,5 +165,23 @@ public class PageReader
         catch (IOException e) {
             throw new RuntimeException("Error reading dictionary page", e);
         }
+    }
+
+    /**
+     * Cast value to a an int, or throw an exception
+     * if there is an overflow.
+     *
+     * @param value a long to be casted to an int
+     * @return an int that is == to value
+     * @throws IllegalArgumentException if value can't be casted to an int
+     * @deprecated replaced by {@link java.lang.Math#toIntExact(long)}
+     */
+    public static int checkedCast(long value)
+    {
+        int valueI = (int) value;
+        if (valueI != value) {
+            throw new IllegalArgumentException(String.format("Overflow casting %d to an int", value));
+        }
+        return valueI;
     }
 }

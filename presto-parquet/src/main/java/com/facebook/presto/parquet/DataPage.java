@@ -13,16 +13,40 @@
  */
 package com.facebook.presto.parquet;
 
+import java.util.Optional;
+
 public abstract class DataPage
         extends Page
 {
     protected final int valueCount;
+    private final long firstRowIndex;
 
     public DataPage(int compressedSize, int uncompressedSize, int valueCount)
     {
+        this(compressedSize, uncompressedSize, valueCount, -1);
+    }
+
+    DataPage(int compressedSize, int uncompressedSize, int valueCount, long firstRowIndex)
+    {
         super(compressedSize, uncompressedSize);
         this.valueCount = valueCount;
+        this.firstRowIndex = firstRowIndex;
     }
+
+    /**
+     * @return the index of the first row in this page if the related data is available (the optional column-index
+     *         contains this value)
+     */
+    public Optional<Long> getFirstRowIndex()
+    {
+        return firstRowIndex < 0 ? Optional.empty() : Optional.of(firstRowIndex);
+    }
+
+    /**
+     * @return the number of rows in this page if the related data is available (in case of pageV1 the optional
+     *         column-index contains this value)
+     */
+    public abstract Optional<Integer> getIndexRowCount();
 
     public int getValueCount()
     {

@@ -16,6 +16,8 @@ package com.facebook.presto.parquet;
 import io.airlift.slice.Slice;
 import org.apache.parquet.column.statistics.Statistics;
 
+import java.util.Optional;
+
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
@@ -27,6 +29,7 @@ public class DataPageV1
     private final ParquetEncoding repetitionLevelEncoding;
     private final ParquetEncoding definitionLevelEncoding;
     private final ParquetEncoding valuesEncoding;
+    private final int indexRowCount;
 
     public DataPageV1(
             Slice slice,
@@ -43,6 +46,27 @@ public class DataPageV1
         this.repetitionLevelEncoding = repetitionLevelEncoding;
         this.definitionLevelEncoding = definitionLevelEncoding;
         this.valuesEncoding = valuesEncoding;
+        this.indexRowCount = -1;
+    }
+
+    public DataPageV1(
+            Slice slice,
+            int valueCount,
+            int uncompressedSize,
+            long firstRowIndex,
+            int rowCount,
+            Statistics<?> statistics,
+            ParquetEncoding repetitionLevelEncoding,
+            ParquetEncoding definitionLevelEncoding,
+            ParquetEncoding valuesEncoding)
+    {
+        super(slice.length(), uncompressedSize, valueCount, firstRowIndex);
+        this.slice = requireNonNull(slice, "slice is null");
+        this.statistics = statistics;
+        this.repetitionLevelEncoding = repetitionLevelEncoding;
+        this.definitionLevelEncoding = definitionLevelEncoding;
+        this.valuesEncoding = valuesEncoding;
+        this.indexRowCount = rowCount;
     }
 
     public Slice getSlice()
@@ -68,6 +92,12 @@ public class DataPageV1
     public ParquetEncoding getValueEncoding()
     {
         return valuesEncoding;
+    }
+
+    @Override
+    public Optional<Integer> getIndexRowCount()
+    {
+        return indexRowCount < 0 ? Optional.empty() : Optional.of(indexRowCount);
     }
 
     @Override
