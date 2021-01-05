@@ -17,7 +17,9 @@ import com.facebook.presto.parquet.DataPage;
 import com.facebook.presto.parquet.DataPageV1;
 import com.facebook.presto.parquet.DataPageV2;
 import com.facebook.presto.parquet.DictionaryPage;
+import io.airlift.slice.Slice;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+import org.apache.parquet.internal.column.columnindex.OffsetIndex;
 
 import java.io.IOException;
 import java.util.LinkedList;
@@ -32,10 +34,20 @@ public class PageReader
     private final long valueCount;
     private final List<DataPage> compressedPages;
     private final DictionaryPage compressedDictionaryPage;
+    private final OffsetIndex offsetIndex;
+    private int pageIndex;
 
     public PageReader(CompressionCodecName codec,
             List<DataPage> compressedPages,
             DictionaryPage compressedDictionaryPage)
+    {
+        this(codec, compressedPages, compressedDictionaryPage, null);
+    }
+
+    public PageReader(CompressionCodecName codec,
+                      List<DataPage> compressedPages,
+                      DictionaryPage compressedDictionaryPage,
+                      OffsetIndex offsetIndex)
     {
         this.codec = codec;
         this.compressedPages = new LinkedList<>(compressedPages);
@@ -45,6 +57,8 @@ public class PageReader
             count += page.getValueCount();
         }
         this.valueCount = count;
+        this.offsetIndex = offsetIndex;
+        this.pageIndex = 0;
     }
 
     public long getTotalValueCount()
@@ -59,12 +73,15 @@ public class PageReader
         }
         DataPage compressedPage = compressedPages.remove(0);
         try {
+            long firstRowIndex = getFirstRowIndex(pageIndex++, offsetIndex);
             if (compressedPage instanceof DataPageV1) {
                 DataPageV1 dataPageV1 = (DataPageV1) compressedPage;
+                Slice slice = decompress(codec, dataPageV1.getSlice(), dataPageV1.getUncompressedSize());
                 return new DataPageV1(
-                        decompress(codec, dataPageV1.getSlice(), dataPageV1.getUncompressedSize()),
+                        slice,
                         dataPageV1.getValueCount(),
                         dataPageV1.getUncompressedSize(),
+                        firstRowIndex,
                         dataPageV1.getStatistics(),
                         dataPageV1.getRepetitionLevelEncoding(),
                         dataPageV1.getDefinitionLevelEncoding(),
@@ -78,14 +95,16 @@ public class PageReader
                 int uncompressedSize = toIntExact(dataPageV2.getUncompressedSize()
                         - dataPageV2.getDefinitionLevels().length()
                         - dataPageV2.getRepetitionLevels().length());
+                Slice slice = decompress(codec, dataPageV2.getSlice(), uncompressedSize);
                 return new DataPageV2(
                         dataPageV2.getRowCount(),
                         dataPageV2.getNullCount(),
                         dataPageV2.getValueCount(),
+                        firstRowIndex,
                         dataPageV2.getRepetitionLevels(),
                         dataPageV2.getDefinitionLevels(),
                         dataPageV2.getDataEncoding(),
-                        decompress(codec, dataPageV2.getSlice(), uncompressedSize),
+                        slice,
                         dataPageV2.getUncompressedSize(),
                         dataPageV2.getStatistics(),
                         false);
@@ -110,5 +129,28 @@ public class PageReader
         catch (IOException e) {
             throw new RuntimeException("Error reading dictionary page", e);
         }
+    }
+
+    /**
+     * Cast value to a an int, or throw an exception
+     * if there is an overflow.
+     *
+     * @param value a long to be casted to an int
+     * @return an int that is == to value
+     * @throws IllegalArgumentException if value can't be casted to an int
+     * @deprecated replaced by {@link java.lang.Math#toIntExact(long)}
+     */
+    public static int checkedCast(long value)
+    {
+        int valueI = (int) value;
+        if (valueI != value) {
+            throw new IllegalArgumentException(String.format("Overflow casting %d to an int", value));
+        }
+        return valueI;
+    }
+
+    public static long getFirstRowIndex(int pageIndex, OffsetIndex offsetIndex)
+    {
+        return offsetIndex == null ? -1 : offsetIndex.getFirstRowIndex(pageIndex);
     }
 }

@@ -183,6 +183,8 @@ public class HiveClientConfig
 
     private boolean fileRenamingEnabled;
 
+    private boolean readColumnIndexFilter;
+
     public int getMaxInitialSplits()
     {
         return maxInitialSplits;
@@ -1523,5 +1525,18 @@ public class HiveClientConfig
     public boolean isFileRenamingEnabled()
     {
         return this.fileRenamingEnabled;
+    }
+
+    @Config("hive.readColumnIndexFilter")
+    @ConfigDescription("enable using parquet column index filter")
+    public HiveClientConfig setReadColumnIndexFilter(boolean readColumnIndexFilter)
+    {
+        this.readColumnIndexFilter = readColumnIndexFilter;
+        return this;
+    }
+
+    public boolean getReadColumnIndexFilter()
+    {
+        return this.readColumnIndexFilter;
     }
 }

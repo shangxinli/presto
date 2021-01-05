@@ -28,7 +28,16 @@
 
 package com.facebook.presto.parquet;
 
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.parquet.format.Util;
+import org.apache.parquet.format.converter.ParquetMetadataConverter;
+import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
+import org.apache.parquet.internal.column.columnindex.ColumnIndex;
+import org.apache.parquet.internal.column.columnindex.OffsetIndex;
+import org.apache.parquet.internal.hadoop.metadata.IndexReference;
+
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -38,12 +47,14 @@ public class FileParquetDataSource
         extends AbstractParquetDataSource
 {
     private final RandomAccessFile input;
+    private final FSDataInputStream inputStream;
 
     public FileParquetDataSource(File file)
             throws FileNotFoundException
     {
         super(new ParquetDataSourceId(file.getAbsolutePath()));
         input = new RandomAccessFile(file, "r");
+        inputStream = new FSDataInputStream(new FileInputStream(file));
     }
 
     @Override
@@ -51,6 +62,7 @@ public class FileParquetDataSource
             throws IOException
     {
         input.close();
+        inputStream.close();
     }
 
     @Override
@@ -63,5 +75,28 @@ public class FileParquetDataSource
         catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    @Override
+    public ColumnIndex readColumnIndex(ColumnChunkMetaData column) throws IOException
+    {
+        IndexReference ref = column.getColumnIndexReference();
+        if (ref == null) {
+            return null;
+        }
+
+        inputStream.seek(ref.getOffset());
+        return ParquetMetadataConverter.fromParquetColumnIndex(column.getPrimitiveType(), Util.readColumnIndex(inputStream));
+    }
+
+    @Override
+    public OffsetIndex readOffsetIndex(ColumnChunkMetaData column) throws IOException
+    {
+        IndexReference ref = column.getOffsetIndexReference();
+        if (ref == null) {
+            return null;
+        }
+        inputStream.seek(ref.getOffset());
+        return ParquetMetadataConverter.fromParquetOffsetIndex(Util.readOffsetIndex(inputStream));
     }
 }
