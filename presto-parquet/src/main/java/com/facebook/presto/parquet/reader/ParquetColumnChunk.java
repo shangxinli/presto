@@ -19,17 +19,19 @@ import com.facebook.presto.parquet.DataPageV2;
 import com.facebook.presto.parquet.DictionaryPage;
 import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.cache.MetadataReader;
-import com.facebook.presto.parquet.reader.ColumnIndexFilterUtils.OffsetRange;
 import io.airlift.slice.Slice;
+import org.apache.parquet.bytes.ByteBufferInputStream;
+import org.apache.parquet.bytes.BytesInput;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.format.DataPageHeader;
 import org.apache.parquet.format.DataPageHeaderV2;
 import org.apache.parquet.format.DictionaryPageHeader;
 import org.apache.parquet.format.PageHeader;
 import org.apache.parquet.format.Util;
+import org.apache.parquet.internal.column.columnindex.OffsetIndex;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,18 +39,19 @@ import static com.facebook.presto.parquet.ParquetTypeUtils.getParquetEncoding;
 import static io.airlift.slice.Slices.wrappedBuffer;
 
 public class ParquetColumnChunk
-        extends ByteArrayInputStream
 {
     private final ColumnChunkDescriptor descriptor;
+    private final ByteBufferInputStream stream;
+    private final OffsetIndex offsetIndex;
 
     public ParquetColumnChunk(
             ColumnChunkDescriptor descriptor,
-            byte[] data,
-            int offset)
+            List<ByteBuffer> data,
+            OffsetIndex offsetIndex)
     {
-        super(data);
+        this.stream = ByteBufferInputStream.wrap(data);
         this.descriptor = descriptor;
-        this.pos = offset;
+        this.offsetIndex = offsetIndex;
     }
 
     public ColumnChunkDescriptor getDescriptor()
@@ -59,19 +62,13 @@ public class ParquetColumnChunk
     protected PageHeader readPageHeader()
             throws IOException
     {
-        return Util.readPageHeader(this);
+        return Util.readPageHeader(stream);
     }
 
-    public PageReader readAllPages(List<OffsetRange> offsetRanges)
+    public PageReader readAllPages()
             throws IOException
     {
-        // TODO: offsetRanges.size() == 0 should readAllPagesInternal
-        if (offsetRanges == null || offsetRanges.size() == 0) {
-            return readAllPagesInternal();
-        }
-        else {
-            return readAllPagesInternal(offsetRanges);
-        }
+        return readAllPagesInternal();
     }
 
     private PageReader readAllPagesInternal()
@@ -80,7 +77,8 @@ public class ParquetColumnChunk
         List<DataPage> pages = new ArrayList<>();
         DictionaryPage dictionaryPage = null;
         long valueCount = 0;
-        while (valueCount < descriptor.getColumnChunkMetaData().getValueCount()) {
+        int dataPageCount = 0;
+        while (hasMorePages(valueCount, dataPageCount)) {
             PageHeader pageHeader = readPageHeader();
             int uncompressedPageSize = pageHeader.getUncompressed_page_size();
             int compressedPageSize = pageHeader.getCompressed_page_size();
@@ -93,19 +91,28 @@ public class ParquetColumnChunk
                     break;
                 case DATA_PAGE:
                     valueCount += readDataPageV1(pageHeader, uncompressedPageSize, compressedPageSize, pages);
+                    ++dataPageCount;
                     break;
                 case DATA_PAGE_V2:
                     valueCount += readDataPageV2(pageHeader, uncompressedPageSize, compressedPageSize, pages);
+                    ++dataPageCount;
                     break;
                 default:
-                    skip(compressedPageSize);
+                    //TODO: uncomment it later
+                    // skip(compressedPageSize);
                     break;
             }
         }
         return new PageReader(descriptor.getColumnChunkMetaData().getCodec(), pages, dictionaryPage);
     }
 
-    private PageReader readAllPagesInternal(List<OffsetRange> offsetRanges)
+    private boolean hasMorePages(long valuesCountReadSoFar, int dataPageCountReadSoFar)
+    {
+        return offsetIndex == null ? valuesCountReadSoFar < descriptor.getColumnChunkMetaData().getValueCount()
+                : dataPageCountReadSoFar < offsetIndex.getPageCount();
+    }
+
+    /*private PageReader readAllPagesInternal(List<OffsetRange> offsetRanges)
             throws IOException
     {
         // TODO: asssert offsetRanges has > 0 elements
@@ -151,21 +158,24 @@ public class ParquetColumnChunk
             }
         }
         return new PageReader(descriptor.getColumnChunkMetaData().getCodec(), pages, dictionaryPage);
-    }
+    } */
 
-    public int getPosition()
+    /*public int getPosition()
     {
         return pos;
-    }
+    }*/
 
-    private Slice getSlice(int size)
+    private Slice getSlice(int size) throws IOException
     {
-        Slice slice = wrappedBuffer(buf, pos, size);
-        pos += size;
+        BytesInput bytesInput = BytesInput.from(stream.sliceBuffers(size));
+        // Todo: Check if using array() and arrayOffset() are correct,
+        // Todo: 0 is correct?
+        Slice slice = wrappedBuffer(bytesInput.toByteArray(), 0, size);
         return slice;
     }
 
     private DictionaryPage readDictionaryPage(PageHeader pageHeader, int uncompressedPageSize, int compressedPageSize)
+            throws IOException
     {
         DictionaryPageHeader dicHeader = pageHeader.getDictionary_page_header();
         return new DictionaryPage(
@@ -179,6 +189,7 @@ public class ParquetColumnChunk
             int uncompressedPageSize,
             int compressedPageSize,
             List<DataPage> pages)
+            throws IOException
     {
         DataPageHeader dataHeaderV1 = pageHeader.getData_page_header();
         pages.add(new DataPageV1(
@@ -198,6 +209,7 @@ public class ParquetColumnChunk
             int uncompressedPageSize,
             int compressedPageSize,
             List<DataPage> pages)
+            throws IOException
     {
         DataPageHeaderV2 dataHeaderV2 = pageHeader.getData_page_header_v2();
         int dataSize = compressedPageSize - dataHeaderV2.getRepetition_levels_byte_length() - dataHeaderV2.getDefinition_levels_byte_length();

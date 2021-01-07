@@ -42,6 +42,8 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.filter2.compat.FilterCompat;
+import org.apache.parquet.filter2.predicate.FilterApi;
+import org.apache.parquet.filter2.predicate.FilterPredicate;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnPath;
@@ -55,6 +57,7 @@ import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -97,6 +100,7 @@ public class ParquetReader
     private BlockMetaData currentBlockMetadata;
     private long currentPosition;
     private long currentGroupRowCount;
+    private RowRanges currentGroupRowRanges;
     private long nextRowInGroup;
     private int batchSize;
 
@@ -190,8 +194,8 @@ public class ParquetReader
         currentBlockMetadata = blocks.get(currentBlock);
 
         getColumnIndexStore(currentBlock);
-        RowRanges rowRanges = getRowRanges(currentBlock);
-        long rowCount = rowRanges.rowCount();
+        currentGroupRowRanges = getRowRanges(currentBlock);
+        long rowCount = currentGroupRowRanges.rowCount();
         if (rowCount == 0) {
             return false;
         }
@@ -273,11 +277,6 @@ public class ParquetReader
             validateParquet(currentBlockMetadata.getRowCount() > 0, "Row group has 0 rows");
             ColumnChunkMetaData metadata = getColumnChunkMetaData(columnDescriptor);
             long startingPosition = metadata.getStartingPos();
-            int totalSize = toIntExact(metadata.getTotalSize());
-            byte[] buffer = allocateBlock(totalSize);
-            dataSource.readFully(startingPosition, buffer);
-            ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
-            ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffer, 0);
 
             OffsetIndex offsetIndex = getColumnIndexStore(currentBlock).getOffsetIndex(metadata.getPath());
             OffsetIndex filteredOffsetIndex = ColumnIndexFilterUtils.filterOffsetIndex(offsetIndex, getRowRanges(currentBlock),
@@ -285,13 +284,34 @@ public class ParquetReader
 
             List<OffsetRange> offsetRanges = ColumnIndexFilterUtils.calculateOffsetRanges(filteredOffsetIndex, metadata,
                     offsetIndex.getOffset(0), startingPosition);
-            // List<OffsetRange> offsetRanges = calculateOffsetRanges(columnChunk, startingPosition);
-            columnReader.init(columnChunk.readAllPages(null), field);
+            List<ConsecutivePartList> allParts = new ArrayList<>();
+            ConsecutivePartList currentParts = null;
+            for (OffsetRange range : offsetRanges) {
+                long rangeStartPos = range.getOffset();
+                // first part or not consecutive => new list
+                if (currentParts == null || currentParts.endPos() != rangeStartPos) {
+                    currentParts = new ConsecutivePartList(rangeStartPos);
+                }
+                allParts.add(currentParts);
+                currentParts.extendLength((int) range.getLength());
+            }
+
+            int totalSize = toIntExact(metadata.getTotalSize());
+            //byte[] buffer = allocateBlock(totalSize);
+            List<ByteBuffer> buffers = allocateBlocks(allParts);
+            for (int i = 0; i < allParts.size(); i++) {
+                ByteBuffer buffer = buffers.get(i);
+                dataSource.readFully(startingPosition + allParts.get(i).getOffset(), buffer.array());
+            }
+
+            ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
+            ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
+            columnReader.init(columnChunk.readAllPages(), field);
 
             if (enableVerification) {
                 ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
-                ParquetColumnChunk columnChunkVerfication = new ParquetColumnChunk(descriptor, buffer, 0);
-                verificationColumnReader.init(columnChunkVerfication.readAllPages(null), field);
+                ParquetColumnChunk columnChunkVerfication = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
+                verificationColumnReader.init(columnChunkVerfication.readAllPages(), field);
             }
         }
 
@@ -325,6 +345,15 @@ public class ParquetReader
             offsetRanges.add(new OffsetRange(53436 - startingPosition, 153));
         }
         return offsetRanges;
+    }
+
+    private List<ByteBuffer> allocateBlocks(List<ConsecutivePartList> allParts)
+    {
+        List<ByteBuffer> buffers = new ArrayList<>();
+        for (ConsecutivePartList part : allParts) {
+            buffers.add(ByteBuffer.wrap(allocateBlock(part.getLength())));
+        }
+        return buffers;
     }
 
     private byte[] allocateBlock(int length)
@@ -488,11 +517,104 @@ public class ParquetReader
     {
         RowRanges rowRanges = blockRowRanges.get(blockIndex);
         if (rowRanges == null) {
-            // TODO: Hardcoded parquet filters
-            rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.NOOP, getColumnIndexStore(blockIndex),
+            // TODO: Hardcoded parquet filters. Replace it with Presto filter
+            FilterPredicate left = FilterApi.eq(FilterApi.intColumn("c1"), 3);
+            FilterPredicate right = FilterApi.eq(FilterApi.intColumn("c1"), 10002);
+            FilterPredicate filter = FilterApi.or(left, right);
+
+            rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.get(filter), getColumnIndexStore(blockIndex),
                     paths.keySet(), blocks.get(blockIndex).getRowCount());
             blockRowRanges.set(blockIndex, rowRanges);
         }
         return rowRanges;
+    }
+
+    /**
+     * Information needed to read a column chunk or a part of it.
+     */
+    private static class ChunkDescriptor
+    {
+        private final ColumnDescriptor col;
+        private final ColumnChunkMetaData metadata;
+        private final long fileOffset;
+        private final int size;
+
+        /**
+         * @param col column this chunk is part of
+         * @param metadata metadata for the column
+         * @param fileOffset offset in the file where this chunk starts
+         * @param size size of the chunk
+         */
+        private ChunkDescriptor(
+                ColumnDescriptor col,
+                ColumnChunkMetaData metadata,
+                long fileOffset,
+                int size)
+        {
+            super();
+            this.col = col;
+            this.metadata = metadata;
+            this.fileOffset = fileOffset;
+            this.size = size;
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return col.hashCode();
+        }
+
+        @Override
+        public boolean equals(Object obj)
+        {
+            if (this == obj) {
+                return true;
+            }
+            else if (obj instanceof ChunkDescriptor) {
+                return col.equals(((ChunkDescriptor) obj).col);
+            }
+            else {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Describes a list of consecutive parts to be read at once. A consecutive part may contain whole column chunks or
+     * only parts of them (some pages).
+     */
+    private class ConsecutivePartList
+    {
+        private final long offset;
+        private int length;
+
+        /**
+         * @param offset where the first chunk starts
+         */
+        public ConsecutivePartList(long offset)
+        {
+            this.offset = offset;
+            this.length = 0;
+        }
+
+        public void extendLength(int length)
+        {
+            this.length += length;
+        }
+
+        public long getOffset()
+        {
+            return offset;
+        }
+
+        public int getLength()
+        {
+            return length;
+        }
+
+        public long endPos()
+        {
+            return offset + length;
+        }
     }
 }
