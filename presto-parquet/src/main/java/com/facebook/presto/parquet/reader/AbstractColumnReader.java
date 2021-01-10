@@ -130,10 +130,15 @@ public abstract class AbstractColumnReader
                 readNextPage();
             }
             int valuesToRead = Math.min(remainingValueCountInPage, nextBatchSize - valueCount);
+            if (valuesToRead == 0) {
+                break;
+            }
             readValues(blockBuilder, valuesToRead, field.getType(), definitionLevels, repetitionLevels);
             valueCount += valuesToRead;
         }
-        checkArgument(valueCount == nextBatchSize, "valueCount %s not equals to batchSize %s", valueCount, nextBatchSize);
+
+        // Todo
+        // checkArgument(valueCount == nextBatchSize, "valueCount %s not equals to batchSize %s", valueCount, nextBatchSize);
 
         readOffset = 0;
         nextBatchSize = 0;
