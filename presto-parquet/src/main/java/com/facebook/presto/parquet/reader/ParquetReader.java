@@ -269,12 +269,20 @@ public class ParquetReader
     private ColumnChunk readPrimitive(PrimitiveField field)
             throws IOException
     {
+        System.out.println("readPrimitive 1");
+        System.out.println("readPrimitive 1-");
+
         ColumnDescriptor columnDescriptor = field.getDescriptor();
+        System.out.println("readPrimitive 1-1");
 
         int fieldId = field.getId();
+        System.out.println("readPrimitive 1-2");
         ColumnReader columnReader = columnReaders[fieldId];
+        System.out.println("readPrimitive 1-3");
         if (!columnReader.isInitialized()) {
+            System.out.println("readPrimitive 1.1");
             validateParquet(currentBlockMetadata.getRowCount() > 0, "Row group has 0 rows");
+            System.out.println("readPrimitive 1-4");
             ColumnChunkMetaData metadata = getColumnChunkMetaData(columnDescriptor);
             long startingPosition = metadata.getStartingPos();
 
@@ -286,6 +294,7 @@ public class ParquetReader
                     offsetIndex.getOffset(0), startingPosition);
             List<ConsecutivePartList> allParts = new ArrayList<>();
             ConsecutivePartList currentParts = null;
+            System.out.println("readPrimitive 1.2");
             for (OffsetRange range : offsetRanges) {
                 long rangeStartPos = range.getOffset();
                 // first part or not consecutive => new list
@@ -299,14 +308,20 @@ public class ParquetReader
             int totalSize = toIntExact(metadata.getTotalSize());
             //byte[] buffer = allocateBlock(totalSize);
             List<ByteBuffer> buffers = allocateBlocks(allParts);
+            System.out.println("readPrimitive 1.3");
             for (int i = 0; i < allParts.size(); i++) {
                 ByteBuffer buffer = buffers.get(i);
+                System.out.println("readPrimitive 1.4");
                 dataSource.readFully(startingPosition + allParts.get(i).getOffset(), buffer.array());
+                System.out.println("readPrimitive 1.5");
             }
-
+            System.out.println("readPrimitive 1.6");
             ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
+            System.out.println("readPrimitive 1.7");
             ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
+            System.out.println("readPrimitive 2");
             columnReader.init(columnChunk.readAllPages(), field);
+            System.out.println("readPrimitive 3");
 
             if (enableVerification) {
                 ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
@@ -315,23 +330,39 @@ public class ParquetReader
             }
         }
 
+        System.out.println("readPrimitive 4");
+
         ColumnChunk columnChunk = columnReader.readNext();
+        System.out.println("readPrimitive 5");
         columnChunk = typeCoercion(columnChunk, field.getDescriptor().getPrimitiveType().getPrimitiveTypeName(), field.getType());
+        System.out.println("readPrimitive 6");
 
         if (enableVerification) {
+            System.out.println("readPrimitive 7");
+
             ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
             ColumnChunk expected = verificationColumnReader.readNext();
             ParquetResultVerifierUtils.verifyColumnChunks(columnChunk, expected, columnDescriptor.getPath().length > 1, field, dataSource.getId());
         }
+        System.out.println("readPrimitive 8");
 
         // update max size per primitive column chunk
         long bytesPerCell = columnChunk.getBlock().getSizeInBytes() / batchSize;
+        System.out.println("readPrimitive 9");
+
         if (maxBytesPerCell[fieldId] < bytesPerCell) {
+            System.out.println("readPrimitive 10");
+
             // update batch size
             maxCombinedBytesPerRow = maxCombinedBytesPerRow - maxBytesPerCell[fieldId] + bytesPerCell;
+            System.out.println("readPrimitive 11");
+
             maxBatchSize = toIntExact(min(maxBatchSize, max(1, maxReadBlockBytes / maxCombinedBytesPerRow)));
+            System.out.println("readPrimitive 12");
             maxBytesPerCell[fieldId] = bytesPerCell;
+            System.out.println("readPrimitive 13");
         }
+        System.out.println("returning readPrimitive()");
         return columnChunk;
     }
 
@@ -389,13 +420,16 @@ public class ParquetReader
     public Block readBlock(Field field)
             throws IOException
     {
+        System.out.println("readBlock 1");
         return readColumnChunk(field).getBlock();
     }
 
     private ColumnChunk readColumnChunk(Field field)
             throws IOException
     {
+        System.out.println("readColumnChunk 1");
         ColumnChunk columnChunk;
+        System.out.println("readColumnChunk 2");
         if (ROW.equals(field.getType().getTypeSignature().getBase())) {
             columnChunk = readStruct((GroupField) field);
         }
@@ -406,7 +440,15 @@ public class ParquetReader
             columnChunk = readArray((GroupField) field);
         }
         else {
-            columnChunk = readPrimitive((PrimitiveField) field);
+            System.out.println("readColumnChunk  3");
+            try {
+                columnChunk = readPrimitive((PrimitiveField) field);
+            }
+            catch (Exception e) {
+                System.out.println("readColumnChunk  4");
+                throw e;
+            }
+            System.out.println("readColumnChunk  5");
         }
         return columnChunk;
     }
@@ -523,6 +565,7 @@ public class ParquetReader
             FilterPredicate filter = FilterApi.or(left, right);
 
             rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.get(filter), getColumnIndexStore(blockIndex),
+            // rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.NOOP, getColumnIndexStore(blockIndex),
                     paths.keySet(), blocks.get(blockIndex).getRowCount());
             blockRowRanges.set(blockIndex, rowRanges);
         }

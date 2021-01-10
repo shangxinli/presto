@@ -120,20 +120,37 @@ public abstract class AbstractColumnReader
     @Override
     public ColumnChunk readNext()
     {
+        System.out.println("AbstractColumnReader readNext 1");
         IntList definitionLevels = new IntArrayList();
+        System.out.println("AbstractColumnReader readNext 2");
         IntList repetitionLevels = new IntArrayList();
+        System.out.println("AbstractColumnReader readNext 3");
         seek();
+        System.out.println("AbstractColumnReader readNext 4");
         BlockBuilder blockBuilder = field.getType().createBlockBuilder(null, nextBatchSize);
+        System.out.println("AbstractColumnReader readNext 5");
         int valueCount = 0;
+        System.out.println("AbstractColumnReader readNext 6");
         while (valueCount < nextBatchSize) {
+            System.out.println("nextBatchSize: " + nextBatchSize + " remainingValueCountInPage: " + remainingValueCountInPage + " valueCount: " + valueCount);
+            System.out.println("AbstractColumnReader readNext 7");
             if (page == null) {
+                System.out.println("AbstractColumnReader readNext 8");
                 readNextPage();
+                System.out.println("AbstractColumnReader readNext 9");
             }
             int valuesToRead = Math.min(remainingValueCountInPage, nextBatchSize - valueCount);
+            if (valuesToRead == 0) {
+                System.out.println("nextBatchSize: " + nextBatchSize + " remainingValueCountInPage: " + remainingValueCountInPage + " valueCount: " + valueCount);
+                break;
+            }
+            System.out.println("valuesToRead: " + valuesToRead);
             readValues(blockBuilder, valuesToRead, field.getType(), definitionLevels, repetitionLevels);
             valueCount += valuesToRead;
         }
-        checkArgument(valueCount == nextBatchSize, "valueCount %s not equals to batchSize %s", valueCount, nextBatchSize);
+
+        // Todo
+        // checkArgument(valueCount == nextBatchSize, "valueCount %s not equals to batchSize %s", valueCount, nextBatchSize);
 
         readOffset = 0;
         nextBatchSize = 0;
