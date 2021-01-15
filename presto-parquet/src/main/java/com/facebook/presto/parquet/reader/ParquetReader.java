@@ -34,6 +34,7 @@ import com.facebook.presto.parquet.ParquetDataSource;
 import com.facebook.presto.parquet.ParquetResultVerifierUtils;
 import com.facebook.presto.parquet.PrimitiveField;
 import com.facebook.presto.parquet.RichColumnDescriptor;
+import com.facebook.presto.parquet.predicate.Predicate;
 import com.facebook.presto.parquet.reader.ColumnIndexFilterUtils.OffsetRange;
 import io.airlift.units.DataSize;
 import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
@@ -95,6 +96,7 @@ public class ParquetReader
     private final AggregatedMemoryContext systemMemoryContext;
     private final boolean batchReadEnabled;
     private final boolean enableVerification;
+    private final Predicate parquetPredicate;
 
     private int currentBlock = -1;
     private BlockMetaData currentBlockMetadata;
@@ -125,7 +127,8 @@ public class ParquetReader
             AggregatedMemoryContext systemMemoryContext,
             DataSize maxReadBlockSize,
             boolean batchReadEnabled,
-            boolean enableVerification)
+            boolean enableVerification,
+            Predicate parquetPredicate)
     {
         this.blocks = blocks;
         this.dataSource = requireNonNull(dataSource, "dataSource is null");
@@ -144,6 +147,7 @@ public class ParquetReader
             ColumnDescriptor columnDescriptor = column.getColumnDescriptor();
             this.paths.put(ColumnPath.get(columnDescriptor.getPath()), columnDescriptor);
         }
+        this.parquetPredicate = parquetPredicate;
     }
 
     @Override
@@ -517,16 +521,21 @@ public class ParquetReader
     {
         RowRanges rowRanges = blockRowRanges.get(blockIndex);
         if (rowRanges == null) {
-            // TODO: Hardcoded parquet filters. Replace it with Presto filter
-            FilterPredicate left = FilterApi.eq(FilterApi.intColumn("c1"), 3);
-            FilterPredicate right = FilterApi.eq(FilterApi.intColumn("c1"), 10002);
-            FilterPredicate filter = FilterApi.or(left, right);
-
+            FilterPredicate filter = parquetPredicate.convertToParquetUDP();
             rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.get(filter), getColumnIndexStore(blockIndex),
                     paths.keySet(), blocks.get(blockIndex).getRowCount());
             blockRowRanges.set(blockIndex, rowRanges);
         }
         return rowRanges;
+    }
+
+    FilterPredicate convertToParquetFilter(Predicate parquetPredicate)
+    {
+        // TODO: Hardcoded parquet filters. Replace it with Presto filter
+        FilterPredicate left = FilterApi.eq(FilterApi.intColumn("c1"), 3);
+        FilterPredicate right = FilterApi.eq(FilterApi.intColumn("c1"), 10002);
+        FilterPredicate filter = FilterApi.or(left, right);
+        return filter;
     }
 
     /**

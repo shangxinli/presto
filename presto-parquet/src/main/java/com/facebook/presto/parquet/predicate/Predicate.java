@@ -17,6 +17,7 @@ import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.ParquetDataSourceId;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.statistics.Statistics;
+import org.apache.parquet.filter2.predicate.FilterPredicate;
 import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore;
 
 import java.util.Map;
@@ -44,6 +45,12 @@ public interface Predicate
         {
             return true;
         }
+
+        @Override
+        public FilterPredicate convertToParquetUDP()
+        {
+            return null;
+        }
     };
 
     /**
@@ -69,4 +76,6 @@ public interface Predicate
 
     boolean matches(long numberOfRows, ColumnIndexStore ciStore, ParquetDataSourceId id, boolean failOnCorruptedParquetStatistics)
             throws ParquetCorruptionException;
+
+    FilterPredicate convertToParquetUDP();
 }
