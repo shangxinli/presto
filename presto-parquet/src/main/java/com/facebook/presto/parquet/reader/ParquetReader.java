@@ -281,28 +281,14 @@ public class ParquetReader
             validateParquet(currentBlockMetadata.getRowCount() > 0, "Row group has 0 rows");
             ColumnChunkMetaData metadata = getColumnChunkMetaData(columnDescriptor);
             long startingPosition = metadata.getStartingPos();
+            int totalSize = toIntExact(metadata.getTotalSize());
 
             RowRanges rowRanges = getRowRanges(currentBlock);
             OffsetIndex offsetIndex = getColumnIndexStore(currentBlock).getOffsetIndex(metadata.getPath());
-            OffsetIndex filteredOffsetIndex = ColumnIndexFilterUtils.filterOffsetIndex(offsetIndex, rowRanges,
-                    blocks.get(currentBlock).getRowCount());
+            OffsetIndex filteredOffsetIndex = ColumnIndexFilterUtils.filterOffsetIndex(offsetIndex, rowRanges, blocks.get(currentBlock).getRowCount());
+            List<OffsetRange> offsetRanges = ColumnIndexFilterUtils.calculateOffsetRanges(filteredOffsetIndex, metadata, offsetIndex.getOffset(0), startingPosition);
+            List<ConsecutivePartList> allParts = concatRanges(offsetRanges);
 
-            List<OffsetRange> offsetRanges = ColumnIndexFilterUtils.calculateOffsetRanges(filteredOffsetIndex, metadata,
-                    offsetIndex.getOffset(0), startingPosition);
-            List<ConsecutivePartList> allParts = new ArrayList<>();
-            ConsecutivePartList currentParts = null;
-            for (OffsetRange range : offsetRanges) {
-                long rangeStartPos = range.getOffset();
-                // first part or not consecutive => new list
-                if (currentParts == null || currentParts.endPos() != rangeStartPos) {
-                    currentParts = new ConsecutivePartList(rangeStartPos);
-                }
-                allParts.add(currentParts);
-                currentParts.extendLength((int) range.getLength());
-            }
-
-            int totalSize = toIntExact(metadata.getTotalSize());
-            //byte[] buffer = allocateBlock(totalSize);
             List<ByteBuffer> buffers = allocateBlocks(allParts);
             for (int i = 0; i < allParts.size(); i++) {
                 ByteBuffer buffer = buffers.get(i);
@@ -338,18 +324,6 @@ public class ParquetReader
             maxBytesPerCell[fieldId] = bytesPerCell;
         }
         return columnChunk;
-    }
-
-    private List<OffsetRange> calculateOffsetRanges(ParquetColumnChunk columnChunk, long startingPosition)
-    {
-        List<OffsetRange> offsetRanges = new ArrayList<>();
-        if (columnChunk.getDescriptor().getColumnDescriptor().getPath()[0].equals("intcol")) {
-            offsetRanges.add(new OffsetRange(4 - startingPosition, 104));
-        }
-        else {
-            offsetRanges.add(new OffsetRange(53436 - startingPosition, 153));
-        }
-        return offsetRanges;
     }
 
     private List<ByteBuffer> allocateBlocks(List<ConsecutivePartList> allParts)
@@ -627,5 +601,21 @@ public class ParquetReader
         {
             return offset + length;
         }
+    }
+
+    private List<ConsecutivePartList> concatRanges(List<OffsetRange> offsetRanges)
+    {
+        List<ConsecutivePartList> allParts = new ArrayList<>();
+        ConsecutivePartList currentParts = null;
+        for (OffsetRange range : offsetRanges) {
+            long rangeStartPos = range.getOffset();
+            // first part or not consecutive => new list
+            if (currentParts == null || currentParts.endPos() != rangeStartPos) {
+                currentParts = new ConsecutivePartList(rangeStartPos);
+            }
+            allParts.add(currentParts);
+            currentParts.extendLength((int) range.getLength());
+        }
+        return allParts;
     }
 }

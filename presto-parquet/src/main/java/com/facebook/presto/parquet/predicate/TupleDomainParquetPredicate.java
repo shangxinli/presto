@@ -675,11 +675,22 @@ public class TupleDomainParquetPredicate
 
     Function<Object, Object> getColumnIndexConversions(PrimitiveType type)
     {
+        // TODO: add them all
         switch (type.getPrimitiveTypeName()) {
+            case BOOLEAN:
+                return buffer -> ((ByteBuffer) buffer).get(0) != 0;
             case INT32:
                 return buffer -> ((ByteBuffer) buffer).order(LITTLE_ENDIAN).getInt(0);
-            case FIXED_LEN_BYTE_ARRAY:
+            case INT64:
+                return buffer -> ((ByteBuffer) buffer).order(LITTLE_ENDIAN).getLong(0);
+            case FLOAT:
+                return buffer -> ((ByteBuffer) buffer).order(LITTLE_ENDIAN).getFloat(0);
+            case DOUBLE:
+                return buffer -> ((ByteBuffer) buffer).order(LITTLE_ENDIAN).getDouble(0);
             case BINARY:
+            case FIXED_LEN_BYTE_ARRAY:
+            case INT96:
+                //TODO: return buffer -> Binary.fromReusedByteBuffer((ByteBuffer) buffer);
                 return binary -> ByteBuffer.wrap(((Binary) binary).getBytes());
             default:
         }
