@@ -395,9 +395,9 @@ public class HivePageSourceProvider
                     tableName,
                     tableParameters,
                     toColumnHandles(regularAndInterimColumnMappings, true),
-                    effectivePredicate,
+                        effectivePredicate,
                     hiveStorageTimeZone,
-                    hiveFileContext,
+                    hiveFileContext,S
                     encryptionInformation);
             if (pageSource.isPresent()) {
                 HivePageSource hivePageSource = new HivePageSource(

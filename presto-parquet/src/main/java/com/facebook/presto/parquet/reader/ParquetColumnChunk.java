@@ -37,6 +37,7 @@ import java.util.List;
 
 import static com.facebook.presto.parquet.ParquetTypeUtils.getParquetEncoding;
 import static io.airlift.slice.Slices.wrappedBuffer;
+import static java.lang.Math.toIntExact;
 
 public class ParquetColumnChunk
 {
@@ -65,23 +66,26 @@ public class ParquetColumnChunk
         return Util.readPageHeader(stream);
     }
 
-    public PageReader readAllPages()
+    public PageReader readAllPages(OffsetIndex offsetIndex)
             throws IOException
     {
-        return readAllPagesInternal();
+        return readAllPagesInternal(offsetIndex);
     }
 
-    private PageReader readAllPagesInternal()
+    private PageReader readAllPagesInternal(OffsetIndex offsetIndex)
             throws IOException
     {
         List<DataPage> pages = new ArrayList<>();
         DictionaryPage dictionaryPage = null;
         long valueCount = 0;
         int dataPageCount = 0;
+        int pageIndex = 0;
+        final long rowGroupRowCount = descriptor.getColumnChunkMetaData().getValueCount();
         while (hasMorePages(valueCount, dataPageCount)) {
             PageHeader pageHeader = readPageHeader();
             int uncompressedPageSize = pageHeader.getUncompressed_page_size();
             int compressedPageSize = pageHeader.getCompressed_page_size();
+            long firstRowIndex = 0;
             switch (pageHeader.type) {
                 case DICTIONARY_PAGE:
                     if (dictionaryPage != null) {
@@ -90,11 +94,17 @@ public class ParquetColumnChunk
                     dictionaryPage = readDictionaryPage(pageHeader, uncompressedPageSize, compressedPageSize);
                     break;
                 case DATA_PAGE:
-                    valueCount += readDataPageV1(pageHeader, uncompressedPageSize, compressedPageSize, pages);
+                    firstRowIndex = offsetIndex.getFirstRowIndex(pageIndex);
+                    // TODO: getValueCount is the rowCount?
+                    int rowCount = toIntExact(offsetIndex.getLastRowIndex(pageIndex, rowGroupRowCount) - firstRowIndex + 1);
+                    valueCount += readDataPageV1(pageHeader, uncompressedPageSize, compressedPageSize, firstRowIndex, rowCount, pages);
+                    ++pageIndex;
                     ++dataPageCount;
                     break;
                 case DATA_PAGE_V2:
-                    valueCount += readDataPageV2(pageHeader, uncompressedPageSize, compressedPageSize, pages);
+                    firstRowIndex = offsetIndex.getFirstRowIndex(pageIndex);
+                    valueCount += readDataPageV2(pageHeader, uncompressedPageSize, compressedPageSize, firstRowIndex, pages);
+                    ++pageIndex;
                     ++dataPageCount;
                     break;
                 default:
@@ -103,7 +113,8 @@ public class ParquetColumnChunk
                     break;
             }
         }
-        return new PageReader(descriptor.getColumnChunkMetaData().getCodec(), pages, dictionaryPage);
+
+        return new PageReader(descriptor.getColumnChunkMetaData().getCodec(), pages, dictionaryPage, offsetIndex, rowGroupRowCount);
     }
 
     private boolean hasMorePages(long valuesCountReadSoFar, int dataPageCountReadSoFar)
@@ -188,6 +199,8 @@ public class ParquetColumnChunk
     private long readDataPageV1(PageHeader pageHeader,
             int uncompressedPageSize,
             int compressedPageSize,
+            long firstRowIndex,
+            int rowCount,
             List<DataPage> pages)
             throws IOException
     {
@@ -196,6 +209,8 @@ public class ParquetColumnChunk
                 getSlice(compressedPageSize),
                 dataHeaderV1.getNum_values(),
                 uncompressedPageSize,
+                firstRowIndex,
+                rowCount,
                 MetadataReader.readStats(
                         dataHeaderV1.getStatistics(),
                         descriptor.getColumnDescriptor().getType()),
@@ -208,6 +223,7 @@ public class ParquetColumnChunk
     private long readDataPageV2(PageHeader pageHeader,
             int uncompressedPageSize,
             int compressedPageSize,
+            long firstRowIndex,
             List<DataPage> pages)
             throws IOException
     {
@@ -217,6 +233,7 @@ public class ParquetColumnChunk
                 dataHeaderV2.getNum_rows(),
                 dataHeaderV2.getNum_nulls(),
                 dataHeaderV2.getNum_values(),
+                firstRowIndex,
                 getSlice(dataHeaderV2.getRepetition_levels_byte_length()),
                 getSlice(dataHeaderV2.getDefinition_levels_byte_length()),
                 getParquetEncoding(Encoding.valueOf(dataHeaderV2.getEncoding().name())),

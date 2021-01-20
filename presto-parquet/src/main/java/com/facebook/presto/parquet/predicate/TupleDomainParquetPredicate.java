@@ -704,7 +704,7 @@ public class TupleDomainParquetPredicate
                 continue;
             }
 
-            FilterPredicate columnFilter = FilterApi.userDefined(FilterApi.intColumn(ColumnPath.get(column.getPath()).toDotString()), new ColumnPrestoUDP(column, domain));
+            FilterPredicate columnFilter = FilterApi.userDefined(FilterApi.intColumn(ColumnPath.get(column.getPath()).toDotString()), new DomainUserDefinedPredicate(domain));
             if (filter == null) {
                 filter = columnFilter;
             }
@@ -716,45 +716,54 @@ public class TupleDomainParquetPredicate
         return filter;
     }
 
-    class ColumnPrestoUDP
-            extends UserDefinedPredicate<Integer>
+    /**
+     * This class implements methods defined in UserDefinedPredicate based on the page statistic and tuple domain(for a column).
+     *
+     */
+    static class DomainUserDefinedPredicate<T extends Comparable<T>>
+            extends UserDefinedPredicate<T>
             implements Serializable
     {
-        private RichColumnDescriptor column;
         private Domain columnDomain;
         private long skippedPageCount;
 
-        ColumnPrestoUDP(RichColumnDescriptor column, Domain domain)
+        DomainUserDefinedPredicate(Domain domain)
         {
-            this.column = column;
             this.columnDomain = domain;
             this.skippedPageCount = 0;
         }
 
-        public boolean keep(Integer value)
+        @Override
+        public boolean keep(T value)
         {
             return true;
         }
 
-        public boolean canDrop(org.apache.parquet.filter2.predicate.Statistics<Integer> statistic)
+        @Override
+        public boolean canDrop(org.apache.parquet.filter2.predicate.Statistics<T> statistic)
         {
             if (statistic == null) {
                 return false;
             }
             else {
-                ParquetIntegerStatistics parquetIntegerStatistics = new ParquetIntegerStatistics((long) statistic.getMin(), (long) statistic.getMax());
-                // TODO: hardcoded
-                boolean hasNullValue = false;
-                Domain domain = createDomain(columnDomain.getType(), hasNullValue, parquetIntegerStatistics);
-                if (columnDomain.intersect(domain).isNone()) {
-                    skippedPageCount++;
-                    return true;
+                if (statistic.getMin() instanceof Integer) {
+                    Integer min = (Integer) statistic.getMin();
+                    Integer max = (Integer) statistic.getMax();
+                    ParquetIntegerStatistics parquetIntegerStatistics = new ParquetIntegerStatistics((long) min, (long) max);
+                    // TODO: hardcoded
+                    boolean hasNullValue = false;
+                    Domain domain = createDomain(columnDomain.getType(), hasNullValue, parquetIntegerStatistics);
+                    if (columnDomain.intersect(domain).isNone()) {
+                        skippedPageCount++;
+                        return true;
+                    }
                 }
             }
             return false;
         }
 
-        public boolean inverseCanDrop(org.apache.parquet.filter2.predicate.Statistics<Integer> statistics)
+        @Override
+        public boolean inverseCanDrop(org.apache.parquet.filter2.predicate.Statistics<T> statistics)
         {
             return false;
         }

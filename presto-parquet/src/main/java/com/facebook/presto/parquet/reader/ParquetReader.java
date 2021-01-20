@@ -282,8 +282,9 @@ public class ParquetReader
             ColumnChunkMetaData metadata = getColumnChunkMetaData(columnDescriptor);
             long startingPosition = metadata.getStartingPos();
 
+            RowRanges rowRanges = getRowRanges(currentBlock);
             OffsetIndex offsetIndex = getColumnIndexStore(currentBlock).getOffsetIndex(metadata.getPath());
-            OffsetIndex filteredOffsetIndex = ColumnIndexFilterUtils.filterOffsetIndex(offsetIndex, getRowRanges(currentBlock),
+            OffsetIndex filteredOffsetIndex = ColumnIndexFilterUtils.filterOffsetIndex(offsetIndex, rowRanges,
                     blocks.get(currentBlock).getRowCount());
 
             List<OffsetRange> offsetRanges = ColumnIndexFilterUtils.calculateOffsetRanges(filteredOffsetIndex, metadata,
@@ -310,12 +311,12 @@ public class ParquetReader
 
             ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
             ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
-            columnReader.init(columnChunk.readAllPages(), field);
+            columnReader.init(columnChunk.readAllPages(filteredOffsetIndex), field, rowRanges);
 
             if (enableVerification) {
                 ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
                 ParquetColumnChunk columnChunkVerfication = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
-                verificationColumnReader.init(columnChunkVerfication.readAllPages(), field);
+                verificationColumnReader.init(columnChunkVerfication.readAllPages(filteredOffsetIndex), field, rowRanges);
             }
         }
 
@@ -521,6 +522,7 @@ public class ParquetReader
     {
         RowRanges rowRanges = blockRowRanges.get(blockIndex);
         if (rowRanges == null) {
+            //FilterPredicate filter = convertToParquetFilter(parquetPredicate);
             FilterPredicate filter = parquetPredicate.convertToParquetUDP();
             rowRanges = ColumnIndexFilter.calculateRowRanges(FilterCompat.get(filter), getColumnIndexStore(blockIndex),
                     paths.keySet(), blocks.get(blockIndex).getRowCount());
