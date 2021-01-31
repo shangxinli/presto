@@ -365,7 +365,7 @@ public class ParquetPageSourceFactory
 
         Set<ColumnPath> paths = new HashSet<>();
         for (List<String> path : descriptorsByPath.keySet()) {
-            paths.add(ColumnPath.get((String[]) path.toArray()));
+            paths.add(ColumnPath.get(path.toArray(new String[0])));
         }
         return ColumnIndexStoreImpl.create(dataSource, blockMetadata, paths);
     }
