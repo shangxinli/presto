@@ -308,27 +308,25 @@ public class ParquetReader
                     ByteBuffer buffer = buffers.get(i);
                     dataSource.readFully(startingPosition + allParts.get(i).getOffset(), buffer.array());
                 }
-                ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
-                ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
-                columnReader.init(columnChunk.readAllPages(), field, currentGroupRowRanges);
+                PageReader pageReader = createPageReader(buffers, totalSize, metadata, columnDescriptor, filteredOffsetIndex);
+                columnReader.init(pageReader, field, currentGroupRowRanges);
 
                 if (enableVerification) {
                     ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
-                    ParquetColumnChunk columnChunkVerfication = new ParquetColumnChunk(descriptor, buffers, filteredOffsetIndex);
-                    verificationColumnReader.init(columnChunkVerfication.readAllPages(), field, currentGroupRowRanges);
+                    PageReader pageReaderVerification = createPageReader(buffers, totalSize, metadata, columnDescriptor, filteredOffsetIndex);
+                    verificationColumnReader.init(pageReaderVerification, field, currentGroupRowRanges);
                 }
             }
             else {
                 byte[] buffer = allocateBlock(totalSize);
                 dataSource.readFully(startingPosition, buffer);
-                ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, totalSize);
-                ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffer, 0);
-                columnReader.init(columnChunk.readAllPages(), field, null);
+                PageReader pageReader = createPageReader(buffer, totalSize, metadata, columnDescriptor);
+                columnReader.init(pageReader, field, null);
 
                 if (enableVerification) {
                     ColumnReader verificationColumnReader = verificationColumnReaders[field.getId()];
-                    ParquetColumnChunk columnChunkVerfication = new ParquetColumnChunk(descriptor, buffer, 0);
-                    verificationColumnReader.init(columnChunkVerfication.readAllPages(), field, null);
+                    PageReader pageReaderVerification = createPageReader(buffer, totalSize, metadata, columnDescriptor);
+                    verificationColumnReader.init(pageReaderVerification, field, null);
                 }
             }
         }
@@ -372,7 +370,23 @@ public class ParquetReader
         return buffers;
     }
 
-    private byte[] allocateBlock(int length)
+    protected PageReader createPageReader(List<ByteBuffer> buffers, int bufferSize, ColumnChunkMetaData metadata, ColumnDescriptor columnDescriptor, OffsetIndex offsetIndex)
+            throws IOException
+    {
+        ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, bufferSize);
+        ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffers, offsetIndex);
+        return columnChunk.readAllPages();
+    }
+
+    protected PageReader createPageReader(byte[] buffer, int bufferSize, ColumnChunkMetaData metadata, ColumnDescriptor columnDescriptor)
+            throws IOException
+    {
+        ColumnChunkDescriptor descriptor = new ColumnChunkDescriptor(columnDescriptor, metadata, bufferSize);
+        ParquetColumnChunk columnChunk = new ParquetColumnChunk(descriptor, buffer, 0);
+        return columnChunk.readAllPages();
+    }
+
+    protected byte[] allocateBlock(int length)
     {
         byte[] buffer = new byte[length];
         LocalMemoryContext blockMemoryContext = currentRowGroupMemoryContext.newLocalMemoryContext(ParquetReader.class.getSimpleName());
