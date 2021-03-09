@@ -11,9 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet.crypto;
+package com.facebook.presto.parquet.crypto.retriever;
 
-import com.facebook.presto.parquet.crypto.CryptoRetriever.InMemoryKMSClient;
+import com.facebook.presto.parquet.crypto.DecryptionPropertiesFactory;
+import com.facebook.presto.parquet.crypto.FileDecryptionProperties;
+import com.facebook.presto.parquet.crypto.ParquetCryptoRuntimeException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
@@ -34,13 +36,13 @@ public class SampleCryptoPropertiesFactory
         InMemoryKMSClient keyRetriever = null;
         try {
             keyRetriever = new InMemoryKMSClient(new Configuration());
-            keyRetriever.putKey("footkey".getBytes(), FOOTER_KEY);
-            keyRetriever.putKey("col".getBytes(), COL_KEY);
+//            keyRetriever.putKey("footkey".getBytes(), FOOTER_KEY);
+ //           keyRetriever.putKey("col".getBytes(), COL_KEY);
         }
         catch (IOException e) {
             throw new ParquetCryptoRuntimeException(e);
         }
 
-        return FileDecryptionProperties.builder().withPlaintextFilesAllowed().withKeyRetriever(keyRetriever).build();
+        return FileDecryptionProperties.builder().withPlaintextFilesAllowed().withoutFooterSignatureVerification().withKeyRetriever(keyRetriever).build();
     }
 }

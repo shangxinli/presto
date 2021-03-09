@@ -11,11 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet.crypto.CryptoRetriever;
+package com.facebook.presto.parquet.crypto.retriever;
 
-import com.facebook.presto.parquet.crypto.CryptoRetriever.KeyMetadataAssembler.MetadataType;
 import com.facebook.presto.parquet.crypto.KeyAccessDeniedException;
 import com.facebook.presto.parquet.crypto.ParquetCryptoRuntimeException;
+import com.facebook.presto.parquet.crypto.retriever.KeyMetadataAssembler.MetadataType;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.crypto.key.KeyProvider.KeyVersion;
 import org.apache.hadoop.crypto.key.KeyProviderCryptoExtension.EncryptedKeyVersion;

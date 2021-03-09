@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet.crypto.CryptoRetriever;
+package com.facebook.presto.parquet.crypto.retriever;
 
 import com.facebook.presto.parquet.crypto.DecryptionKeyRetriever;
 

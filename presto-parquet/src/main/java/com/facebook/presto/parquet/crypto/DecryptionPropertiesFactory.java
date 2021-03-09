@@ -55,6 +55,7 @@ public interface DecryptionPropertiesFactory
      */
     static DecryptionPropertiesFactory loadFactory(Configuration conf)
     {
+        conf.set(CRYPTO_FACTORY_CLASS_PROPERTY_NAME, com.facebook.presto.parquet.crypto.retriever.SampleCryptoPropertiesFactory.class.getName());
         final Class<?> decryptionPropertiesFactoryClass = ConfigurationUtil.getClassFromConfig(conf, CRYPTO_FACTORY_CLASS_PROPERTY_NAME, DecryptionPropertiesFactory.class);
 
         if (null == decryptionPropertiesFactoryClass) {

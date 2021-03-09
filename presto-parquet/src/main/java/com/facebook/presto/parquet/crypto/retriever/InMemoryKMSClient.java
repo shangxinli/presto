@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet.crypto.CryptoRetriever;
+package com.facebook.presto.parquet.crypto.retriever;
 
 import com.facebook.presto.parquet.crypto.KeyAccessDeniedException;
 import com.facebook.presto.parquet.crypto.ParquetCryptoRuntimeException;
@@ -35,6 +35,7 @@ public class InMemoryKMSClient
     public static final String CONF_TEST_COL_KEY_INVALID = "parquet.test.col.key.invalid";
     public static final String CONF_COL_TEST_KEY_MISSING = "parquet.test.col.key.missing";
     public static final String CONF_TEST_FOOTER_KEY_INVALID = "parquet.test.footer.key.invalid";
+    public static final String CONF_COL_FOOTER_KEY_MISSING = "parquet.test.footer.key.missing";
 
     protected Map<ByteBuffer, byte[]> keyMap;
     protected Map<ByteBuffer, byte[]> aadMap;
@@ -185,27 +186,37 @@ public class InMemoryKMSClient
         for (int i = 0; i < 10; i++) {
             for (int j = 0; j < 100; j++) {
                 for (int k = 0; k < 50; k++) {
-                    String colKeyName = "db" + String.valueOf(i) + ".tbl" + String.valueOf(j) + ".col" + String.valueOf(k);
+                    String colKeyName =
+                            "db" + String.valueOf(i) + ".tbl" + String.valueOf(j) + ".col" + String.valueOf(k);
                     putKey(colKeyName.getBytes(Charset.forName("UTF-8")), shiftKeys(keyLength, i, j, k));
                 }
             }
         }
 
         // TODO: This is a temp key we have to keep because Ranger KMS has the same for now.
-        putKey("test".getBytes(Charset.forName("UTF-8")), new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19});
+        putKey(
+                "test".getBytes(Charset.forName("UTF-8")),
+                new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19});
     }
 
     private byte[] shiftKeys(int keyLengh, int dbNum, int tblNum, int colNum)
     {
         byte[] key;
         if (keyLengh == 16) {
-            key = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+            key = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
         }
         else if (keyLengh == 24) {
-            key = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
+            key =
+                    new byte[] {
+                            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23
+                    };
         }
         else if (keyLengh == 32) {
-            key = new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
+            key =
+                    new byte[] {
+                            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                            24, 25, 26, 27, 28, 29, 30, 31
+                    };
         }
         else {
             throw new RuntimeException("Invalid key length");
@@ -226,10 +237,10 @@ public class InMemoryKMSClient
     private void generateAads()
             throws IOException
     {
-        putAad(new byte[]{0, 0}, new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
-        putAad(new byte[]{0, 1}, new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16});
-        putAad(new byte[]{0, 2}, new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 17});
-        putAad(new byte[]{0, 3}, new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18});
+        putAad(new byte[] {0, 0}, new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+        putAad(new byte[] {0, 1}, new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16});
+        putAad(new byte[] {0, 2}, new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 17});
+        putAad(new byte[] {0, 3}, new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18});
     }
 
     public EKeySet generateEK(String mkMetadata)
